@@ -1,6 +1,12 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { db } from "./firebase";
+import {
+  collection, doc, getDocs, setDoc, deleteDoc, onSnapshot
+} from "firebase/firestore";
 
-const STORAGE_KEY = "psico_data_v3";
+// ── Colecciones en Firestore ──
+const COLS = ["pacientes","tutores","obrasSociales","turnos","sesiones","tests","cobros","anamnesis","informes"];
+
 const initData = {
   profesional: { nombre: "Martín, Andrea L.", matricula: "MP-U Nº430", especialidad: "Lic. en Psicopedagogía", telefono: "", email: "", direccion: "Av. San Martín 1544 - Resistencia - Chaco", logo: "" },
   pacientes: [], tutores: [], obrasSociales: [
@@ -14,15 +20,6 @@ const initData = {
 const PARENTESCOS = ["Padre","Madre","Padrastro","Madrastra","Tutor legal","Abuelo","Abuela","Tío","Tía","Primo","Prima","Hermano mayor","Hermana mayor"];
 const TIPOS_TEST = ["WISC-V","Bender","HTP","Familia Kinética","Test de la Figura Humana","Prueba de Lectura","Evaluación Fonológica","Otro"];
 
-function useData() {
-  const [data, setData] = useState(() => {
-    try { const s = localStorage.getItem(STORAGE_KEY); return s ? { ...initData, ...JSON.parse(s) } : initData; }
-    catch { return initData; }
-  });
-  const save = (d) => { setData(d); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(d)); } catch {} };
-  return [data, save];
-}
-
 function uid() { return Date.now() + Math.random().toString(36).slice(2); }
 function edadAnios(fnac) {
   if (!fnac) return "";
@@ -32,11 +29,66 @@ function edadAnios(fnac) {
   return a;
 }
 
+// ── Hook Firebase ──
+function useFirebase() {
+  const [data, setData] = useState(initData);
+  const [loading, setLoading] = useState(true);
+  const [syncing, setSyncing] = useState(false);
+
+  // Escuchar cambios en tiempo real para todas las colecciones
+  useEffect(() => {
+    const unsubs = [];
+    let loaded = 0;
+    COLS.forEach(col => {
+      const unsub = onSnapshot(collection(db, col), snap => {
+        const items = snap.docs.map(d => ({ ...d.data(), id: d.id }));
+        setData(prev => ({ ...prev, [col]: items }));
+        loaded++;
+        if (loaded >= COLS.length) setLoading(false);
+      });
+      unsubs.push(unsub);
+    });
+    // Cargar configuración del profesional
+    const profUnsub = onSnapshot(doc(db, "config", "profesional"), snap => {
+      if (snap.exists()) setData(prev => ({ ...prev, profesional: snap.data() }));
+      setLoading(false);
+    });
+    unsubs.push(profUnsub);
+    return () => unsubs.forEach(u => u());
+  }, []);
+
+  // Guardar un item en una colección
+  const saveItem = useCallback(async (colName, item) => {
+    setSyncing(true);
+    try {
+      await setDoc(doc(db, colName, item.id), item);
+    } finally { setSyncing(false); }
+  }, []);
+
+  // Eliminar un item de una colección
+  const deleteItem = useCallback(async (colName, id) => {
+    setSyncing(true);
+    try {
+      await deleteDoc(doc(db, colName, id));
+    } finally { setSyncing(false); }
+  }, []);
+
+  // Guardar configuración del profesional
+  const saveProfesional = useCallback(async (prof) => {
+    setSyncing(true);
+    try {
+      await setDoc(doc(db, "config", "profesional"), prof);
+      setData(prev => ({ ...prev, profesional: prof }));
+    } finally { setSyncing(false); }
+  }, []);
+
+  return { data, loading, syncing, saveItem, deleteItem, saveProfesional };
+}
+
 // ── FIELD COMPONENT ──
-function Field({ l, k, type="text", opts=null, full=false, value, onChange, half=false }) {
-  const cls = `form-group${full?" form-full":half?" form-half":""}`;
+function Field({ l, k, type="text", opts=null, full=false, value, onChange }) {
   return (
-    <div className={cls}>
+    <div className={`form-group${full?" form-full":""}`}>
       <label>{l}</label>
       {opts
         ? <select value={value||""} onChange={e => onChange(k, e.target.value)}>
@@ -53,7 +105,7 @@ function Field({ l, k, type="text", opts=null, full=false, value, onChange, half
 
 const css = `
 * { box-sizing: border-box; margin: 0; padding: 0; }
-body { font-family: var(--font-sans, system-ui); font-size: 15px; color: var(--color-text-primary); background: #f0ece8; }
+body { font-family: var(--font-sans, system-ui); font-size: 15px; color: #4a3f35; background: #f0ece8; }
 .layout { display: flex; min-height: 100vh; }
 .sidebar { width: 220px; min-width: 220px; background: #faf8f5; border-right: 1px solid #e2ddd8; padding: 1rem 0; display: flex; flex-direction: column; }
 .sidebar-logo { padding: 0 1rem 1rem; border-bottom: 1px solid #e2ddd8; margin-bottom: 0.5rem; }
@@ -63,6 +115,7 @@ body { font-family: var(--font-sans, system-ui); font-size: 15px; color: var(--c
 .nav-item:hover { background: #ece8e2; color: #4a3f35; }
 .nav-item.active { color: #6b5b8e; border-left-color: #6b5b8e; background: #ede8f5; font-weight: 500; }
 .nav-section { font-size: 10px; font-weight: 500; color: #b0a898; padding: 1rem 1rem 0.25rem; text-transform: uppercase; letter-spacing: 0.05em; }
+.sync-bar { padding: 6px 1rem; font-size: 12px; background: #ede8f5; color: #6b5b8e; display: flex; align-items: center; gap: 6px; }
 .main { flex: 1; overflow: auto; }
 .topbar { background: #faf8f5; border-bottom: 1px solid #e2ddd8; padding: 0.75rem 1.5rem; display: flex; align-items: center; justify-content: space-between; }
 .topbar h1 { font-size: 17px; font-weight: 500; color: #4a3f35; }
@@ -84,7 +137,6 @@ textarea { resize: vertical; min-height: 80px; }
 input:focus, select:focus, textarea:focus { outline: none; border-color: #6b5b8e; box-shadow: 0 0 0 2px #ede8f5; }
 .form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .form-full { grid-column: 1 / -1; }
-.form-half { grid-column: span 1; }
 .form-group { display: flex; flex-direction: column; gap: 5px; }
 .form-group label { font-size: 13px; color: #7a6e64; font-weight: 500; }
 .table-wrap { overflow-x: auto; }
@@ -116,11 +168,14 @@ tr:hover td { background: #f5f1ec; }
 .section-title { font-size: 12px; font-weight: 500; color: #8a7e74; margin: 1.25rem 0 0.6rem; padding-bottom: 5px; border-bottom: 1px solid #e2ddd8; text-transform: uppercase; letter-spacing: 0.05em; }
 .hermanos-table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 4px; }
 .hermanos-table th { background: #f5f1ec; padding: 7px 8px; font-size: 12px; border-bottom: 1px solid #e2ddd8; color: #8a7e74; }
-.hermanos-table td { padding: 5px 5px; border-bottom: 1px solid #ece8e2; }
-.hermanos-table td input { padding: 5px 8px; font-size: 13px; background: #fff; border: 1px solid #c8c0b8; border-radius: 6px; }
+.hermanos-table td { padding: 5px; border-bottom: 1px solid #ece8e2; }
+.hermanos-table td input { padding: 5px 8px; font-size: 13px; }
 .hamburger { display: none; background: none; border: none; cursor: pointer; padding: 4px; color: #4a3f35; }
 .sidebar-overlay { display: none; }
 .info-box { background: #ede8f5; border: 1px solid #c8b8e8; border-radius: 8px; padding: 10px 14px; font-size: 13px; color: #5a4a7a; margin-bottom: 12px; }
+.loading-screen { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; gap: 16px; background: #f0ece8; }
+.spinner { width: 40px; height: 40px; border: 3px solid #e2ddd8; border-top-color: #6b5b8e; border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
 @media (max-width: 768px) {
   .sidebar { position: fixed; left: -220px; top: 0; height: 100vh; z-index: 200; transition: left 0.2s; }
   .sidebar.open { left: 0; }
@@ -128,7 +183,7 @@ tr:hover td { background: #f5f1ec; }
   .hamburger { display: flex; }
   .content { padding: 1rem; }
   .form-grid { grid-template-columns: 1fr; }
-  .form-full, .form-half { grid-column: 1; }
+  .form-full { grid-column: 1; }
 }
 @media print {
   body * { visibility: hidden; }
@@ -137,82 +192,86 @@ tr:hover td { background: #f5f1ec; }
 }
 `;
 
+// ══════════════════════════════════════════════════════
+//  APP PRINCIPAL
+// ══════════════════════════════════════════════════════
 export default function App() {
-  const [data, save] = useData();
+  const { data, loading, syncing, saveItem, deleteItem, saveProfesional } = useFirebase();
   const [view, setView] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [logoSrc, setLogoSrc] = useState(data.profesional.logo || "");
+  const [logoSrc, setLogoSrc] = useState("");
+
+  useEffect(() => {
+    if (data.profesional?.logo) setLogoSrc(data.profesional.logo);
+  }, [data.profesional?.logo]);
+
   const nav = (v) => { setView(v); setSidebarOpen(false); };
 
-  const exportData = () => {
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
-    const a = document.createElement("a"); a.href = URL.createObjectURL(blob);
-    a.download = `psicopedagogia_backup_${new Date().toISOString().slice(0,10)}.json`; a.click();
-  };
-  const importRef = useRef();
-  const importData = (e) => {
-    const file = e.target.files[0]; if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) => { try { save(JSON.parse(ev.target.result)); alert("Datos importados correctamente."); } catch { alert("Error al importar."); } };
-    reader.readAsText(file);
-  };
-
   const navItems = [
-    { key: "dashboard", label: "Dashboard" },
-    { section: "Clínica" },
-    { key: "pacientes", label: "Pacientes" },
-    { key: "turnos", label: "Turnos" },
-    { key: "sesiones", label: "Sesiones" },
-    { key: "tests", label: "Tests" },
-    { key: "informes", label: "Informes" },
-    { section: "Administración" },
-    { key: "cobros", label: "Cobros" },
-    { key: "obrasSociales", label: "Obras Sociales" },
-    { section: "Sistema" },
-    { key: "profesional", label: "Mi Perfil" },
+    { key:"dashboard", label:"Dashboard" },
+    { section:"Clínica" },
+    { key:"pacientes", label:"Pacientes" },
+    { key:"turnos", label:"Turnos" },
+    { key:"sesiones", label:"Sesiones" },
+    { key:"tests", label:"Tests" },
+    { key:"informes", label:"Informes" },
+    { section:"Administración" },
+    { key:"cobros", label:"Cobros" },
+    { key:"obrasSociales", label:"Obras Sociales" },
+    { section:"Sistema" },
+    { key:"profesional", label:"Mi Perfil" },
   ];
   const titles = { dashboard:"Dashboard", pacientes:"Pacientes", turnos:"Turnos", sesiones:"Sesiones", tests:"Tests", informes:"Informes", cobros:"Cobros", obrasSociales:"Obras Sociales", profesional:"Mi Perfil" };
+
+  if (loading) return (
+    <>
+      <style>{css}</style>
+      <div className="loading-screen">
+        <div className="spinner" />
+        <div style={{fontSize:15,color:"#8a7e74"}}>Conectando con la base de datos...</div>
+      </div>
+    </>
+  );
+
+  const ctx = { data, saveItem, deleteItem, saveProfesional, logoSrc, setLogoSrc };
 
   return (
     <>
       <style>{css}</style>
       <div className="layout">
-        {sidebarOpen && <div className="sidebar-overlay" onClick={() => setSidebarOpen(false)} />}
-        <div className={`sidebar${sidebarOpen ? " open" : ""}`}>
+        {sidebarOpen && <div className="sidebar-overlay" onClick={()=>setSidebarOpen(false)} />}
+        <div className={`sidebar${sidebarOpen?" open":""}`}>
           <div className="sidebar-logo">
-            <h2>{data.profesional.nombre || "Psicopedagogía"}</h2>
-            <p>{data.profesional.matricula}</p>
+            <h2>{data.profesional?.nombre || "Psicopedagogía"}</h2>
+            <p>{data.profesional?.matricula}</p>
           </div>
-          {navItems.map((item, i) =>
+          {navItems.map((item,i) =>
             item.section
               ? <div key={i} className="nav-section">{item.section}</div>
-              : <div key={item.key} className={`nav-item${view === item.key ? " active" : ""}`} onClick={() => nav(item.key)}>{item.label}</div>
+              : <div key={item.key} className={`nav-item${view===item.key?" active":""}`} onClick={()=>nav(item.key)}>{item.label}</div>
           )}
-          <div style={{marginTop:"auto",padding:"1rem",borderTop:"1px solid #e2ddd8",display:"flex",flexDirection:"column",gap:6}}>
-            <button className="btn btn-sm btn-success" onClick={exportData}>↓ Exportar backup</button>
-            <button className="btn btn-sm" onClick={() => importRef.current.click()}>↑ Importar backup</button>
-            <input ref={importRef} type="file" accept=".json" style={{display:"none"}} onChange={importData} />
-          </div>
+          {syncing && <div className="sync-bar"><div className="spinner" style={{width:12,height:12,borderWidth:2}} />Guardando...</div>}
+          {!syncing && <div style={{padding:"6px 1rem",fontSize:12,color:"#5a8a6a"}}>✓ Sincronizado</div>}
         </div>
         <div className="main">
           <div className="topbar">
             <div style={{display:"flex",alignItems:"center",gap:12}}>
-              <button className="hamburger" onClick={() => setSidebarOpen(true)}>
-                <svg width="20" height="20" viewBox="0 0 20 20" fill="none"><rect y="4" width="20" height="2" rx="1" fill="currentColor"/><rect y="9" width="20" height="2" rx="1" fill="currentColor"/><rect y="14" width="20" height="2" rx="1" fill="currentColor"/></svg>
+              <button className="hamburger" onClick={()=>setSidebarOpen(true)}>
+                <svg width="20" height="20" viewBox="0 0 20 20"><rect y="4" width="20" height="2" rx="1" fill="currentColor"/><rect y="9" width="20" height="2" rx="1" fill="currentColor"/><rect y="14" width="20" height="2" rx="1" fill="currentColor"/></svg>
               </button>
               <h1>{titles[view]}</h1>
             </div>
           </div>
           <div className="content">
-            {view === "dashboard" && <Dashboard data={data} nav={nav} />}
-            {view === "pacientes" && <Pacientes data={data} save={save} />}
-            {view === "turnos" && <Turnos data={data} save={save} />}
-            {view === "sesiones" && <Sesiones data={data} save={save} />}
-            {view === "tests" && <Tests data={data} save={save} />}
-            {view === "informes" && <Informes data={data} save={save} logoSrc={logoSrc} />}
-            {view === "cobros" && <Cobros data={data} save={save} />}
-            {view === "obrasSociales" && <ObrasSociales data={data} save={save} />}
-            {view === "profesional" && <Profesional data={data} save={save} logoSrc={logoSrc} setLogoSrc={setLogoSrc} />}
+            {view==="dashboard" && <Dashboard ctx={ctx} nav={nav} />}
+            {view==="pacientes" && <Pacientes ctx={ctx} />}
+            {view==="turnos" && <Turnos ctx={ctx} />}
+            {view==="sesiones" && <Sesiones ctx={ctx} />}
+            {view==="tests" && <Tests ctx={ctx} />}
+            {view==="informes" && <Informes ctx={ctx} />}
+            {view==="cobros" && <Cobros ctx={ctx} />}
+            {view==="obrasSociales" && <ObrasSociales ctx={ctx} />}
+            {view==="profesional" && <Profesional ctx={ctx} />}
           </div>
         </div>
       </div>
@@ -221,8 +280,9 @@ export default function App() {
 }
 
 // ── DASHBOARD ──
-function Dashboard({ data, nav }) {
-  const hoy = new Date().toISOString().slice(0, 10);
+function Dashboard({ ctx, nav }) {
+  const { data } = ctx;
+  const hoy = new Date().toISOString().slice(0,10);
   return (
     <div>
       <div className="stat-grid">
@@ -235,9 +295,9 @@ function Dashboard({ data, nav }) {
         <div className="card-header"><span className="card-title">Próximos turnos</span><button className="btn btn-sm" onClick={()=>nav("turnos")}>Ver todos</button></div>
         {data.turnos.filter(t=>t.fecha>=hoy).sort((a,b)=>a.fecha>b.fecha?1:-1).slice(0,6).map(t=>{
           const p = data.pacientes.find(p=>p.id===t.pacienteId);
-          const nombre = p ? `${p.nombre} ${p.apellido}` : (t.descripcionLibre || "—");
+          const nombre = p?`${p.nombre} ${p.apellido}`:(t.descripcionLibre||"Sin especificar");
           return <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"9px 0",borderBottom:"1px solid #ece8e2"}}>
-            <span style={{fontSize:15}}>{nombre}</span>
+            <span>{nombre}</span>
             <span style={{fontSize:13,color:"#8a7e74"}}>{t.fecha} {t.hora}</span>
             <span className={`badge badge-${t.estado==="Confirmado"?"green":t.estado==="Cancelado"?"red":t.estado==="Ausente"?"amber":"purple"}`}>{t.estado}</span>
           </div>;
@@ -249,72 +309,31 @@ function Dashboard({ data, nav }) {
 }
 
 // ── PACIENTES ──
-const emptyPaciente = {
-  nombre:"", apellido:"", dni:"", fechaNac:"", apodo:"", religion:"", escuela:"", alergias:"No", manoDominante:"Derecha", medicoC:"", motivoConsulta:"",
-  padreNombre:"", padreEdad:"", padreOcupacion:"", padreEscolaridad:"", padreAntecedentes:"",
-  madreNombre:"", madreEdad:"", madreOcupacion:"", madreEscolaridad:"", madreAntecedentes:"",
-  hermanos:[],
-  conQuienVive:"", relacionMadre:"", relacionPadre:"", relacionHermanos:"",
-};
-
-const emptyAnam = {
-  fechaEntrevista:"", pesoNacer:"",
-  embarazo:"Normal", termino:"A término", fueplanificado:"", buenaAlimentacion:"", cuidadosNecesarios:"",
-  tabaco:"No", alcohol:"No", medicacion:"", otrosConsumo:"",
-  traumaPsiquico:"", noticiaEmbarazo:"", dificultadEmbarazo:"", estadoAnimo:"",
-  parto:"Normal", sexoDeseado:"", circularCordon:"No", podal:"No", incompatibilidadSanguinea:"No",
-  incubadora:"No", tiempoIncubadora:"", dificultadParto:"",
-  enfermedadesPostnatal:"", cirugias:"",
-  lactanciaMaterna:"", lactanciaMixta:"", chupete:"No", succionDedo:"No", mamadera:"No",
-  alimentacionSemis:"", alimentacionSolida:"", alimentoNoGusta:"", denticion:"",
-  esfinterDiurno:"", esfinterNocturno:"", higieneSolo:"", banoSolo:"", quienBana:"",
-  controlCefalico:"", controlTronco:"", marcha:"",
-  suenhoLugar:"", suenhoHoras:"", suenhoHorario:"", suenhoElemento:"", suenhoDispositivo:"No",
-  vocalizaciones:"", palabras:"", frase:"", gestual:"", manifestaDeseos:"", preferencias:"", consignasSimples:"", repetirConsigna:"",
-  activo:"", tiendaAislarse:"", esAgresivo:"", juegos:"", conQuienJuega:"",
-  dominadoPorOtros:"", esCarinoso:"", esInquieto:"", problemasDisciplina:"",
-  jardinMaternal:"", edadIngreso:"", jardinInfantes:"", pasoPorJardin:"",
-  escuelaPrimaria:"", gradoActual:"", materiasGusta:"", actividadesExtra:"",
-  otrosDatos:""
-};
-
-const ANAM_TABS = [
-  { key:"entrevista", label:"Entrevista" },
-  { key:"embarazo", label:"Embarazo" },
-  { key:"parto", label:"Parto y nacimiento" },
-  { key:"alimentacion", label:"Alimentación" },
-  { key:"esfinteres", label:"Esfínteres y baño" },
-  { key:"psicomotricidad", label:"Psicomotricidad" },
-  { key:"suenho", label:"Sueño" },
-  { key:"comunicacion", label:"Comunicación" },
-  { key:"socializacion", label:"Socialización" },
-  { key:"escolar", label:"Trayectoria escolar" },
-  { key:"otros", label:"Otros datos" },
-];
+const emptyPaciente = { nombre:"", apellido:"", dni:"", fechaNac:"", apodo:"", religion:"", escuela:"", alergias:"No", manoDominante:"Derecha", medicoC:"", motivoConsulta:"", padreNombre:"", padreEdad:"", padreOcupacion:"", padreEscolaridad:"", padreAntecedentes:"", madreNombre:"", madreEdad:"", madreOcupacion:"", madreEscolaridad:"", madreAntecedentes:"", hermanos:[], conQuienVive:"", relacionMadre:"", relacionPadre:"", relacionHermanos:"" };
+const emptyAnam = { fechaEntrevista:"", pesoNacer:"", embarazo:"Normal", termino:"A término", fueplanificado:"", buenaAlimentacion:"", cuidadosNecesarios:"", tabaco:"No", alcohol:"No", medicacion:"", otrosConsumo:"", traumaPsiquico:"", noticiaEmbarazo:"", dificultadEmbarazo:"", estadoAnimo:"", parto:"Normal", sexoDeseado:"", circularCordon:"No", podal:"No", incompatibilidadSanguinea:"No", incubadora:"No", tiempoIncubadora:"", dificultadParto:"", enfermedadesPostnatal:"", cirugias:"", lactanciaMaterna:"", lactanciaMixta:"", chupete:"No", succionDedo:"No", mamadera:"No", alimentacionSemis:"", alimentacionSolida:"", alimentoNoGusta:"", denticion:"", esfinterDiurno:"", esfinterNocturno:"", higieneSolo:"", banoSolo:"", quienBana:"", controlCefalico:"", controlTronco:"", marcha:"", suenhoLugar:"", suenhoHoras:"", suenhoHorario:"", suenhoElemento:"", suenhoDispositivo:"No", vocalizaciones:"", palabras:"", frase:"", gestual:"", manifestaDeseos:"", preferencias:"", consignasSimples:"", repetirConsigna:"", activo:"", tiendaAislarse:"", esAgresivo:"", juegos:"", conQuienJuega:"", dominadoPorOtros:"", esCarinoso:"", esInquieto:"", problemasDisciplina:"", jardinMaternal:"", edadIngreso:"", jardinInfantes:"", pasoPorJardin:"", escuelaPrimaria:"", gradoActual:"", materiasGusta:"", actividadesExtra:"", otrosDatos:"" };
+const ANAM_TABS = [{key:"embarazo",label:"Embarazo"},{key:"parto",label:"Parto y nacimiento"},{key:"alimentacion",label:"Alimentación"},{key:"esfinteres",label:"Esfínteres"},{key:"psicomotricidad",label:"Psicomotricidad"},{key:"suenho",label:"Sueño"},{key:"comunicacion",label:"Comunicación"},{key:"socializacion",label:"Socialización"},{key:"escolar",label:"Trayectoria escolar"},{key:"otros",label:"Otros"}];
 
 function AnamnesisForm({ form, setField }) {
-  const [tab, setTab] = useState("entrevista");
+  const [tab, setTab] = useState("embarazo");
   return (
     <div>
       <div className="tabs" style={{flexWrap:"wrap"}}>
-        {ANAM_TABS.map(t => <div key={t.key} className={`tab${tab===t.key?" active":""}`} onClick={()=>setTab(t.key)}>{t.label}</div>)}
+        {ANAM_TABS.map(t=><div key={t.key} className={`tab${tab===t.key?" active":""}`} onClick={()=>setTab(t.key)}>{t.label}</div>)}
       </div>
-      {tab==="entrevista" && <div className="form-grid">
+      {tab==="embarazo" && <div className="form-grid">
         <Field l="Fecha de entrevista" k="fechaEntrevista" type="date" value={form.fechaEntrevista} onChange={setField} />
         <Field l="Peso al nacer" k="pesoNacer" value={form.pesoNacer} onChange={setField} />
-      </div>}
-      {tab==="embarazo" && <div className="form-grid">
         <Field l="Tipo de embarazo" k="embarazo" opts={["Normal","Con complicaciones"]} value={form.embarazo} onChange={setField} />
         <Field l="Término" k="termino" opts={["A término","Prematuro","Postérmino"]} value={form.termino} onChange={setField} />
         <Field l="¿Fue planificado?" k="fueplanificado" opts={["Sí","No"]} value={form.fueplanificado} onChange={setField} />
         <Field l="¿Buena alimentación?" k="buenaAlimentacion" opts={["Sí","No"]} value={form.buenaAlimentacion} onChange={setField} />
-        <Field l="¿Tuvo los cuidados necesarios?" k="cuidadosNecesarios" opts={["Sí","No"]} value={form.cuidadosNecesarios} onChange={setField} />
+        <Field l="¿Cuidados necesarios?" k="cuidadosNecesarios" opts={["Sí","No"]} value={form.cuidadosNecesarios} onChange={setField} />
         <Field l="Consumo: tabaco" k="tabaco" opts={["No","Sí"]} value={form.tabaco} onChange={setField} />
         <Field l="Consumo: alcohol" k="alcohol" opts={["No","Sí"]} value={form.alcohol} onChange={setField} />
         <Field l="Consumo: medicación" k="medicacion" value={form.medicacion} onChange={setField} />
         <Field l="Consumo: otros" k="otrosConsumo" value={form.otrosConsumo} onChange={setField} />
         <Field l="Sexo deseado" k="sexoDeseado" opts={["Masculino","Femenino","Sin preferencia"]} value={form.sexoDeseado} onChange={setField} />
-        <Field l="¿Caída o trauma psíquico?" k="traumaPsiquico" value={form.traumaPsiquico} onChange={setField} />
+        <Field l="¿Trauma psíquico o caída?" k="traumaPsiquico" value={form.traumaPsiquico} onChange={setField} />
         <Field l="¿Cómo tomaron la noticia?" k="noticiaEmbarazo" value={form.noticiaEmbarazo} onChange={setField} />
         <Field l="Estado de ánimo durante el embarazo" k="estadoAnimo" type="textarea" full value={form.estadoAnimo} onChange={setField} />
         <Field l="Dificultades durante el embarazo" k="dificultadEmbarazo" type="textarea" full value={form.dificultadEmbarazo} onChange={setField} />
@@ -322,13 +341,13 @@ function AnamnesisForm({ form, setField }) {
       {tab==="parto" && <div className="form-grid">
         <Field l="Tipo de parto" k="parto" opts={["Normal","Cesárea","Fórceps"]} value={form.parto} onChange={setField} />
         <Field l="Circular de cordón" k="circularCordon" opts={["No","Sí"]} value={form.circularCordon} onChange={setField} />
-        <Field l="Nacimiento podálico / nalgas" k="podal" opts={["No","Sí"]} value={form.podal} onChange={setField} />
+        <Field l="Nacimiento podálico" k="podal" opts={["No","Sí"]} value={form.podal} onChange={setField} />
         <Field l="Incompatibilidad sanguínea" k="incompatibilidadSanguinea" opts={["No","Sí"]} value={form.incompatibilidadSanguinea} onChange={setField} />
         <Field l="Incubadora" k="incubadora" opts={["No","Sí"]} value={form.incubadora} onChange={setField} />
         <Field l="¿Cuánto tiempo en incubadora?" k="tiempoIncubadora" value={form.tiempoIncubadora} onChange={setField} />
         <Field l="Dificultad en el parto" k="dificultadParto" type="textarea" full value={form.dificultadParto} onChange={setField} />
-        <Field l="Enfermedades post-natal (cuáles y cuándo)" k="enfermedadesPostnatal" type="textarea" full value={form.enfermedadesPostnatal} onChange={setField} />
-        <Field l="Cirugías (cuáles y cuándo)" k="cirugias" type="textarea" full value={form.cirugias} onChange={setField} />
+        <Field l="Enfermedades post-natal" k="enfermedadesPostnatal" type="textarea" full value={form.enfermedadesPostnatal} onChange={setField} />
+        <Field l="Cirugías" k="cirugias" type="textarea" full value={form.cirugias} onChange={setField} />
       </div>}
       {tab==="alimentacion" && <div className="form-grid">
         <Field l="Lactancia materna (hasta cuándo)" k="lactanciaMaterna" value={form.lactanciaMaterna} onChange={setField} />
@@ -336,39 +355,39 @@ function AnamnesisForm({ form, setField }) {
         <Field l="Uso del chupete" k="chupete" opts={["No","Sí"]} value={form.chupete} onChange={setField} />
         <Field l="Succión del dedo" k="succionDedo" opts={["No","Sí"]} value={form.succionDedo} onChange={setField} />
         <Field l="Usa mamadera" k="mamadera" opts={["No","Sí"]} value={form.mamadera} onChange={setField} />
-        <Field l="Alimentación semisólida (cuándo comenzó)" k="alimentacionSemis" value={form.alimentacionSemis} onChange={setField} />
-        <Field l="Alimentación sólida (cuándo comenzó)" k="alimentacionSolida" value={form.alimentacionSolida} onChange={setField} />
+        <Field l="Alimentación semisólida (cuándo)" k="alimentacionSemis" value={form.alimentacionSemis} onChange={setField} />
+        <Field l="Alimentación sólida (cuándo)" k="alimentacionSolida" value={form.alimentacionSolida} onChange={setField} />
         <Field l="Alimento que no le agrada" k="alimentoNoGusta" value={form.alimentoNoGusta} onChange={setField} />
         <Field l="Dentición (cuándo)" k="denticion" value={form.denticion} onChange={setField} />
       </div>}
       {tab==="esfinteres" && <div className="form-grid">
-        <Field l="Control diurno (¿a qué edad?)" k="esfinterDiurno" value={form.esfinterDiurno} onChange={setField} />
-        <Field l="Control nocturno (¿a qué edad?)" k="esfinterNocturno" value={form.esfinterNocturno} onChange={setField} />
-        <Field l="¿Se higieniza solo/a en la actualidad?" k="higieneSolo" opts={["Sí","No"]} value={form.higieneSolo} onChange={setField} />
+        <Field l="Control diurno (edad)" k="esfinterDiurno" value={form.esfinterDiurno} onChange={setField} />
+        <Field l="Control nocturno (edad)" k="esfinterNocturno" value={form.esfinterNocturno} onChange={setField} />
+        <Field l="¿Se higieniza solo/a?" k="higieneSolo" opts={["Sí","No"]} value={form.higieneSolo} onChange={setField} />
         <Field l="¿Se baña solo/a?" k="banoSolo" opts={["Sí","No","Con ayuda"]} value={form.banoSolo} onChange={setField} />
         <Field l="¿Quién lo/la baña?" k="quienBana" value={form.quienBana} onChange={setField} />
       </div>}
       {tab==="psicomotricidad" && <div className="form-grid">
-        <Field l="Control cefálico (¿cuándo?)" k="controlCefalico" value={form.controlCefalico} onChange={setField} />
-        <Field l="Control de tronco (¿cuándo?)" k="controlTronco" value={form.controlTronco} onChange={setField} />
-        <Field l="Marcha (¿cuándo?)" k="marcha" value={form.marcha} onChange={setField} />
+        <Field l="Control cefálico (cuándo)" k="controlCefalico" value={form.controlCefalico} onChange={setField} />
+        <Field l="Control de tronco (cuándo)" k="controlTronco" value={form.controlTronco} onChange={setField} />
+        <Field l="Marcha (cuándo)" k="marcha" value={form.marcha} onChange={setField} />
       </div>}
       {tab==="suenho" && <div className="form-grid">
         <Field l="Lugar y con quién duerme" k="suenhoLugar" value={form.suenhoLugar} onChange={setField} />
         <Field l="Cantidad de horas" k="suenhoHoras" value={form.suenhoHoras} onChange={setField} />
         <Field l="Horario nocturno" k="suenhoHorario" value={form.suenhoHorario} onChange={setField} />
-        <Field l="¿Duerme con algún elemento en particular?" k="suenhoElemento" value={form.suenhoElemento} onChange={setField} />
-        <Field l="¿Mira algún dispositivo para dormir?" k="suenhoDispositivo" opts={["No","Sí"]} value={form.suenhoDispositivo} onChange={setField} />
+        <Field l="¿Duerme con algún elemento?" k="suenhoElemento" value={form.suenhoElemento} onChange={setField} />
+        <Field l="¿Mira dispositivo para dormir?" k="suenhoDispositivo" opts={["No","Sí"]} value={form.suenhoDispositivo} onChange={setField} />
       </div>}
       {tab==="comunicacion" && <div className="form-grid">
         <Field l="Vocalizaciones" k="vocalizaciones" value={form.vocalizaciones} onChange={setField} />
         <Field l="Palabras" k="palabras" value={form.palabras} onChange={setField} />
         <Field l="Frases" k="frase" value={form.frase} onChange={setField} />
         <Field l="Gestual" k="gestual" value={form.gestual} onChange={setField} />
-        <Field l="¿Cómo manifiesta sus deseos/pedidos?" k="manifestaDeseos" full value={form.manifestaDeseos} onChange={setField} />
+        <Field l="¿Cómo manifiesta sus deseos?" k="manifestaDeseos" full value={form.manifestaDeseos} onChange={setField} />
         <Field l="Preferencias (¿con quién?)" k="preferencias" value={form.preferencias} onChange={setField} />
         <Field l="¿Responde a consignas simples?" k="consignasSimples" opts={["Sí","No","A veces"]} value={form.consignasSimples} onChange={setField} />
-        <Field l="¿Es necesario repetir una consigna?" k="repetirConsigna" opts={["Sí","No","A veces"]} value={form.repetirConsigna} onChange={setField} />
+        <Field l="¿Es necesario repetir la consigna?" k="repetirConsigna" opts={["Sí","No","A veces"]} value={form.repetirConsigna} onChange={setField} />
       </div>}
       {tab==="socializacion" && <div className="form-grid">
         <Field l="¿Es activo/a?" k="activo" opts={["Sí","No","A veces"]} value={form.activo} onChange={setField} />
@@ -379,17 +398,17 @@ function AnamnesisForm({ form, setField }) {
         <Field l="¿Es dominado por otros niños?" k="dominadoPorOtros" opts={["Sí","No","A veces"]} value={form.dominadoPorOtros} onChange={setField} />
         <Field l="¿Es cariñoso/a?" k="esCarinoso" opts={["Sí","No"]} value={form.esCarinoso} onChange={setField} />
         <Field l="¿Es inquieto/a?" k="esInquieto" opts={["Sí","No","A veces"]} value={form.esInquieto} onChange={setField} />
-        <Field l="¿Tiene problemas de disciplina?" k="problemasDisciplina" opts={["Sí","No","A veces"]} value={form.problemasDisciplina} onChange={setField} />
+        <Field l="¿Problemas de disciplina?" k="problemasDisciplina" opts={["Sí","No","A veces"]} value={form.problemasDisciplina} onChange={setField} />
       </div>}
       {tab==="escolar" && <div className="form-grid">
         <Field l="Jardín maternal (institución)" k="jardinMaternal" value={form.jardinMaternal} onChange={setField} />
         <Field l="¿A qué edad ingresó?" k="edadIngreso" value={form.edadIngreso} onChange={setField} />
-        <Field l="Jardín de infantes (institución)" k="jardinInfantes" value={form.jardinInfantes} onChange={setField} />
-        <Field l="Su paso por el jardín (cómo fue)" k="pasoPorJardin" type="textarea" full value={form.pasoPorJardin} onChange={setField} />
-        <Field l="Escuela primaria donde asiste o asistió" k="escuelaPrimaria" value={form.escuelaPrimaria} onChange={setField} />
-        <Field l="Grado al que asiste" k="gradoActual" value={form.gradoActual} onChange={setField} />
-        <Field l="¿Qué materias le gustan?" k="materiasGusta" value={form.materiasGusta} onChange={setField} />
-        <Field l="¿Tiene actividades extraescolares?" k="actividadesExtra" value={form.actividadesExtra} onChange={setField} />
+        <Field l="Jardín de infantes" k="jardinInfantes" value={form.jardinInfantes} onChange={setField} />
+        <Field l="Su paso por el jardín" k="pasoPorJardin" type="textarea" full value={form.pasoPorJardin} onChange={setField} />
+        <Field l="Escuela primaria" k="escuelaPrimaria" value={form.escuelaPrimaria} onChange={setField} />
+        <Field l="Grado actual" k="gradoActual" value={form.gradoActual} onChange={setField} />
+        <Field l="Materias que le gustan" k="materiasGusta" value={form.materiasGusta} onChange={setField} />
+        <Field l="Actividades extraescolares" k="actividadesExtra" value={form.actividadesExtra} onChange={setField} />
       </div>}
       {tab==="otros" && <div className="form-grid">
         <Field l="Otros datos o informaciones" k="otrosDatos" type="textarea" full value={form.otrosDatos} onChange={setField} />
@@ -398,57 +417,48 @@ function AnamnesisForm({ form, setField }) {
   );
 }
 
-const PAC_TABS = [
-  { key:"nino", label:"Datos del niño/a" },
-  { key:"familiar", label:"Grupo familiar" },
-  { key:"convivencia", label:"Convivencia" },
-  { key:"anam", label:"Historia clínica" },
-];
+const PAC_TABS = [{key:"nino",label:"Datos del niño/a"},{key:"familiar",label:"Grupo familiar"},{key:"convivencia",label:"Convivencia"},{key:"anam",label:"Historia clínica"}];
 
-function Pacientes({ data, save }) {
+function Pacientes({ ctx }) {
+  const { data, saveItem, deleteItem } = ctx;
   const [showForm, setShowForm] = useState(false);
   const [editId, setEditId] = useState(null);
   const [detailId, setDetailId] = useState(null);
   const [search, setSearch] = useState("");
   const [detailTab, setDetailTab] = useState("nino");
   const [formTab, setFormTab] = useState("nino");
-  const [pacForm, setPacForm] = useState({...emptyPaciente, hermanos:[]});
+  const [pacForm, setPacForm] = useState({...emptyPaciente,hermanos:[]});
   const [anamForm, setAnamForm] = useState({...emptyAnam});
 
-  const filtered = data.pacientes.filter(p =>
-    `${p.nombre} ${p.apellido} ${p.dni}`.toLowerCase().includes(search.toLowerCase())
-  );
-  const setPacField = (k, v) => setPacForm(f => ({...f, [k]: v}));
-  const setAnamField = (k, v) => setAnamForm(f => ({...f, [k]: v}));
+  const filtered = data.pacientes.filter(p=>`${p.nombre} ${p.apellido} ${p.dni}`.toLowerCase().includes(search.toLowerCase()));
+  const setPacField = (k,v) => setPacForm(f=>({...f,[k]:v}));
+  const setAnamField = (k,v) => setAnamForm(f=>({...f,[k]:v}));
 
-  const open = (p = null) => {
-    setPacForm(p ? {...emptyPaciente, ...p, hermanos: p.hermanos||[]} : {...emptyPaciente, hermanos:[]});
+  const open = (p=null) => {
+    setPacForm(p?{...emptyPaciente,...p,hermanos:p.hermanos||[]}:{...emptyPaciente,hermanos:[]});
     const ex = p ? data.anamnesis.find(a=>a.pacienteId===p.id) : null;
-    setAnamForm(ex ? {...emptyAnam,...ex} : {...emptyAnam});
-    setEditId(p ? p.id : null);
-    setFormTab("nino");
-    setShowForm(true);
+    setAnamForm(ex?{...emptyAnam,...ex}:{...emptyAnam});
+    setEditId(p?p.id:null); setFormTab("nino"); setShowForm(true);
   };
 
-  const submit = () => {
+  const submit = async () => {
     const id = editId || uid();
-    const ps = editId
-      ? data.pacientes.map(p => p.id===editId ? {...pacForm,id:editId} : p)
-      : [...data.pacientes, {...pacForm, id}];
-    const anamObj = {...anamForm, pacienteId: id};
-    const anams = data.anamnesis.find(a=>a.pacienteId===id)
-      ? data.anamnesis.map(a=>a.pacienteId===id ? anamObj : a)
-      : [...data.anamnesis, {...anamObj, id: uid()}];
-    save({...data, pacientes: ps, anamnesis: anams});
+    const paciente = {...pacForm, id};
+    await saveItem("pacientes", paciente);
+    const anamId = data.anamnesis.find(a=>a.pacienteId===id)?.id || uid();
+    await saveItem("anamnesis", {...anamForm, id: anamId, pacienteId: id});
     setShowForm(false);
   };
 
-  const del = (id) => save({...data, pacientes: data.pacientes.filter(p=>p.id!==id)});
+  const del = async (id) => {
+    await deleteItem("pacientes", id);
+    const anam = data.anamnesis.find(a=>a.pacienteId===id);
+    if (anam) await deleteItem("anamnesis", anam.id);
+  };
 
-  const addHermano = () => setPacForm(f=>({...f, hermanos:[...f.hermanos, {nombre:"",edad:"",escolaridad:"",enfermedad:""}]}));
+  const addHermano = () => setPacForm(f=>({...f,hermanos:[...f.hermanos,{nombre:"",edad:"",escolaridad:"",enfermedad:""}]}));
   const updHermano = (i,field,val) => { const h=[...pacForm.hermanos]; h[i]={...h[i],[field]:val}; setPacForm(f=>({...f,hermanos:h})); };
   const delHermano = (i) => setPacForm(f=>({...f,hermanos:f.hermanos.filter((_,idx)=>idx!==i)}));
-
   const detail = detailId ? data.pacientes.find(p=>p.id===detailId) : null;
 
   return (
@@ -484,7 +494,6 @@ function Pacientes({ data, save }) {
         </div>
       </div>
 
-      {/* FORM */}
       {showForm && (
         <div className="modal-overlay" onClick={()=>setShowForm(false)}>
           <div className="modal" style={{maxWidth:740}} onClick={e=>e.stopPropagation()}>
@@ -495,7 +504,6 @@ function Pacientes({ data, save }) {
             <div className="tabs">
               {PAC_TABS.map(t=><div key={t.key} className={`tab${formTab===t.key?" active":""}`} onClick={()=>setFormTab(t.key)}>{t.label}</div>)}
             </div>
-
             {formTab==="nino" && <div className="form-grid">
               <Field l="Nombre" k="nombre" value={pacForm.nombre} onChange={setPacField} />
               <Field l="Apellido" k="apellido" value={pacForm.apellido} onChange={setPacField} />
@@ -509,7 +517,6 @@ function Pacientes({ data, save }) {
               <Field l="Médico de cabecera" k="medicoC" value={pacForm.medicoC} onChange={setPacField} />
               <Field l="Motivo de consulta" k="motivoConsulta" type="textarea" full value={pacForm.motivoConsulta} onChange={setPacField} />
             </div>}
-
             {formTab==="familiar" && <div>
               <div className="section-title">Datos del padre</div>
               <div className="form-grid">
@@ -530,30 +537,25 @@ function Pacientes({ data, save }) {
               <div className="section-title">Hermanos</div>
               <table className="hermanos-table">
                 <thead><tr><th>Nombre</th><th>Edad</th><th>Escolaridad</th><th>Enfermedad</th><th></th></tr></thead>
-                <tbody>
-                  {pacForm.hermanos.map((h,i)=>(
-                    <tr key={i}>
-                      <td><input value={h.nombre} onChange={e=>updHermano(i,"nombre",e.target.value)} placeholder="Nombre" /></td>
-                      <td><input value={h.edad} onChange={e=>updHermano(i,"edad",e.target.value)} placeholder="Edad" /></td>
-                      <td><input value={h.escolaridad} onChange={e=>updHermano(i,"escolaridad",e.target.value)} placeholder="Escolaridad" /></td>
-                      <td><input value={h.enfermedad} onChange={e=>updHermano(i,"enfermedad",e.target.value)} placeholder="Enfermedad" /></td>
-                      <td><button className="btn btn-sm btn-danger" onClick={()=>delHermano(i)}>✕</button></td>
-                    </tr>
-                  ))}
-                </tbody>
+                <tbody>{pacForm.hermanos.map((h,i)=>(
+                  <tr key={i}>
+                    <td><input value={h.nombre} onChange={e=>updHermano(i,"nombre",e.target.value)} placeholder="Nombre" /></td>
+                    <td><input value={h.edad} onChange={e=>updHermano(i,"edad",e.target.value)} placeholder="Edad" /></td>
+                    <td><input value={h.escolaridad} onChange={e=>updHermano(i,"escolaridad",e.target.value)} placeholder="Escolaridad" /></td>
+                    <td><input value={h.enfermedad} onChange={e=>updHermano(i,"enfermedad",e.target.value)} placeholder="Enfermedad" /></td>
+                    <td><button className="btn btn-sm btn-danger" onClick={()=>delHermano(i)}>✕</button></td>
+                  </tr>
+                ))}</tbody>
               </table>
               <button className="btn btn-sm" style={{marginTop:10}} onClick={addHermano}>+ Agregar hermano/a</button>
             </div>}
-
             {formTab==="convivencia" && <div className="form-grid">
               <Field l="¿Con quién vive el paciente?" k="conQuienVive" full value={pacForm.conQuienVive} onChange={setPacField} />
-              <Field l="¿Cómo es su relación con la madre?" k="relacionMadre" type="textarea" full value={pacForm.relacionMadre} onChange={setPacField} />
-              <Field l="¿Cómo es su relación con el padre?" k="relacionPadre" type="textarea" full value={pacForm.relacionPadre} onChange={setPacField} />
-              <Field l="¿Cómo es su relación con los hermanos?" k="relacionHermanos" type="textarea" full value={pacForm.relacionHermanos} onChange={setPacField} />
+              <Field l="Relación con la madre" k="relacionMadre" type="textarea" full value={pacForm.relacionMadre} onChange={setPacField} />
+              <Field l="Relación con el padre" k="relacionPadre" type="textarea" full value={pacForm.relacionPadre} onChange={setPacField} />
+              <Field l="Relación con los hermanos" k="relacionHermanos" type="textarea" full value={pacForm.relacionHermanos} onChange={setPacField} />
             </div>}
-
             {formTab==="anam" && <AnamnesisForm form={anamForm} setField={setAnamField} />}
-
             <div className="modal-footer">
               <button className="btn" onClick={()=>setShowForm(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={submit}>Guardar paciente</button>
@@ -562,17 +564,14 @@ function Pacientes({ data, save }) {
         </div>
       )}
 
-      {/* DETAIL */}
       {detailId && detail && (
         <div className="modal-overlay" onClick={()=>setDetailId(null)}>
           <div className="modal" style={{maxWidth:760}} onClick={e=>e.stopPropagation()}>
             <div className="modal-header">
               <div style={{display:"flex",alignItems:"center",gap:12}}>
                 <div className="avatar" style={{width:42,height:42,fontSize:15}}>{(detail.nombre[0]||"")+(detail.apellido[0]||"")}</div>
-                <div>
-                  <div className="modal-title">{detail.nombre} {detail.apellido}</div>
-                  <div style={{fontSize:13,color:"#8a7e74"}}>{detail.dni} · {edadAnios(detail.fechaNac)} años</div>
-                </div>
+                <div><div className="modal-title">{detail.nombre} {detail.apellido}</div>
+                <div style={{fontSize:13,color:"#8a7e74"}}>{detail.dni} · {edadAnios(detail.fechaNac)} años</div></div>
               </div>
               <div style={{display:"flex",gap:6}}>
                 <button className="btn btn-sm btn-primary" onClick={()=>{setDetailId(null);open(detail);}}>Editar</button>
@@ -592,24 +591,19 @@ function Pacientes({ data, save }) {
             </div>}
             {detailTab==="familiar" && <div>
               <div className="section-title">Padre</div>
-              <div className="form-grid">
-                {[["Nombre",detail.padreNombre],["Edad",detail.padreEdad],["Ocupación",detail.padreOcupacion],["Escolaridad",detail.padreEscolaridad],["Antecedentes",detail.padreAntecedentes]].map(([k,v])=>(
-                  <div key={k} className="form-group"><label>{k}</label><div style={{padding:"8px 11px",background:"#f5f1ec",borderRadius:8,fontSize:15,minHeight:36,border:"1px solid #e2ddd8"}}>{v||"—"}</div></div>
-                ))}
-              </div>
+              <div className="form-grid">{[["Nombre",detail.padreNombre],["Edad",detail.padreEdad],["Ocupación",detail.padreOcupacion],["Escolaridad",detail.padreEscolaridad],["Antecedentes",detail.padreAntecedentes]].map(([k,v])=>(
+                <div key={k} className="form-group"><label>{k}</label><div style={{padding:"8px 11px",background:"#f5f1ec",borderRadius:8,fontSize:15,minHeight:36,border:"1px solid #e2ddd8"}}>{v||"—"}</div></div>
+              ))}</div>
               <div className="section-title">Madre</div>
-              <div className="form-grid">
-                {[["Nombre",detail.madreNombre],["Edad",detail.madreEdad],["Ocupación",detail.madreOcupacion],["Escolaridad",detail.madreEscolaridad],["Antecedentes",detail.madreAntecedentes]].map(([k,v])=>(
-                  <div key={k} className="form-group"><label>{k}</label><div style={{padding:"8px 11px",background:"#f5f1ec",borderRadius:8,fontSize:15,minHeight:36,border:"1px solid #e2ddd8"}}>{v||"—"}</div></div>
-                ))}
-              </div>
+              <div className="form-grid">{[["Nombre",detail.madreNombre],["Edad",detail.madreEdad],["Ocupación",detail.madreOcupacion],["Escolaridad",detail.madreEscolaridad],["Antecedentes",detail.madreAntecedentes]].map(([k,v])=>(
+                <div key={k} className="form-group"><label>{k}</label><div style={{padding:"8px 11px",background:"#f5f1ec",borderRadius:8,fontSize:15,minHeight:36,border:"1px solid #e2ddd8"}}>{v||"—"}</div></div>
+              ))}</div>
               <div className="section-title">Hermanos</div>
               {(detail.hermanos||[]).length>0
                 ? <table className="hermanos-table"><thead><tr><th>Nombre</th><th>Edad</th><th>Escolaridad</th><th>Enfermedad</th></tr></thead>
                     <tbody>{(detail.hermanos||[]).map((h,i)=><tr key={i}><td>{h.nombre}</td><td>{h.edad}</td><td>{h.escolaridad}</td><td>{h.enfermedad}</td></tr>)}</tbody>
                   </table>
-                : <p style={{fontSize:14,color:"#8a7e74"}}>Sin hermanos registrados</p>
-              }
+                : <p style={{fontSize:14,color:"#8a7e74"}}>Sin hermanos registrados</p>}
             </div>}
             {detailTab==="convivencia" && <div className="form-grid">
               {[["¿Con quién vive?",detail.conQuienVive],["Relación con la madre",detail.relacionMadre],["Relación con el padre",detail.relacionPadre],["Relación con hermanos",detail.relacionHermanos]].map(([k,v])=>(
@@ -618,9 +612,9 @@ function Pacientes({ data, save }) {
             </div>}
             {detailTab==="anam" && (() => {
               const anam = data.anamnesis.find(a=>a.pacienteId===detailId);
-              return anam ? <AnamnesisForm form={anam} setField={()=>{}} /> : <p style={{fontSize:14,color:"#8a7e74"}}>Sin anamnesis cargada. Editá el paciente para completarla.</p>;
+              return anam ? <AnamnesisForm form={anam} setField={()=>{}} /> : <p style={{fontSize:14,color:"#8a7e74"}}>Sin anamnesis cargada.</p>;
             })()}
-            {detailTab==="tutores" && <TutoresTab data={data} save={save} pacienteId={detailId} />}
+            {detailTab==="tutores" && <TutoresTab ctx={ctx} pacienteId={detailId} />}
           </div>
         </div>
       )}
@@ -628,8 +622,8 @@ function Pacientes({ data, save }) {
   );
 }
 
-// ── TUTORES TAB ──
-function TutoresTab({ data, save, pacienteId }) {
+function TutoresTab({ ctx, pacienteId }) {
+  const { data, saveItem, deleteItem } = ctx;
   const tutores = data.tutores.filter(t=>t.pacienteId===pacienteId);
   const empty = { nombre:"", apellido:"", parentesco:"Padre", dni:"", telefono:"", email:"", ocupacion:"", escolaridad:"", antecedentes:"", pacienteId };
   const [form, setForm] = useState(empty);
@@ -637,14 +631,15 @@ function TutoresTab({ data, save, pacienteId }) {
   const [showF, setShowF] = useState(false);
   const setField = (k,v) => setForm(f=>({...f,[k]:v}));
   const open = (t=null) => { setForm(t?{...t}:{...empty}); setEditId(t?t.id:null); setShowF(true); };
-  const submit = () => {
-    const ts = editId ? data.tutores.map(t=>t.id===editId?{...form,id:editId}:t) : [...data.tutores,{...form,id:uid()}];
-    save({...data,tutores:ts}); setShowF(false);
+  const submit = async () => {
+    const id = editId || uid();
+    await saveItem("tutores", {...form, id});
+    setShowF(false);
   };
-  const del = (id) => save({...data,tutores:data.tutores.filter(t=>t.id!==id)});
+  const del = async (id) => await deleteItem("tutores", id);
   return (
     <div>
-      <button className="btn btn-primary btn-sm" style={{marginBottom:12}} onClick={()=>open()}>+ Agregar tutor / responsable</button>
+      <button className="btn btn-primary btn-sm" style={{marginBottom:12}} onClick={()=>open()}>+ Agregar tutor</button>
       {tutores.map(t=>(
         <div key={t.id} style={{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 0",borderBottom:"1px solid #ece8e2"}}>
           <div><div style={{fontWeight:500,fontSize:15}}>{t.nombre} {t.apellido}</div><div style={{fontSize:13,color:"#8a7e74"}}>{t.parentesco} · {t.telefono}</div></div>
@@ -681,19 +676,16 @@ function TutoresTab({ data, save, pacienteId }) {
   );
 }
 
-// ── TURNOS ──
-function Turnos({ data, save }) {
+function Turnos({ ctx }) {
+  const { data, saveItem, deleteItem } = ctx;
   const empty = { pacienteId:"", descripcionLibre:"", fecha:"", hora:"", estado:"Pendiente", notas:"" };
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
   const [showF, setShowF] = useState(false);
   const setField = (k,v) => setForm(f=>({...f,[k]:v}));
   const open = (t=null) => { setForm(t?{...empty,...t}:empty); setEditId(t?t.id:null); setShowF(true); };
-  const submit = () => {
-    const ts = editId ? data.turnos.map(t=>t.id===editId?{...form,id:editId}:t) : [...data.turnos,{...form,id:uid()}];
-    save({...data,turnos:ts}); setShowF(false);
-  };
-  const del = (id) => save({...data,turnos:data.turnos.filter(t=>t.id!==id)});
+  const submit = async () => { await saveItem("turnos", {...form, id: editId||uid()}); setShowF(false); };
+  const del = async (id) => await deleteItem("turnos", id);
   const sorted = [...data.turnos].sort((a,b)=>a.fecha>b.fecha?-1:1);
   return (
     <div>
@@ -705,9 +697,9 @@ function Turnos({ data, save }) {
             <tbody>
               {sorted.map(t=>{
                 const p = data.pacientes.find(p=>p.id===t.pacienteId);
-                const nombre = p ? `${p.nombre} ${p.apellido}` : (t.descripcionLibre||"Sin especificar");
+                const nombre = p?`${p.nombre} ${p.apellido}`:(t.descripcionLibre||"Sin especificar");
                 return <tr key={t.id}>
-                  <td>{nombre}{!p&&<span className="badge badge-amber" style={{marginLeft:6,fontSize:11}}>Provisional</span>}</td>
+                  <td>{nombre}{!p&&<span className="badge badge-amber" style={{marginLeft:6}}>Provisional</span>}</td>
                   <td>{t.fecha}</td><td>{t.hora}</td>
                   <td><span className={`badge badge-${t.estado==="Confirmado"?"green":t.estado==="Cancelado"?"red":t.estado==="Ausente"?"amber":t.estado==="Realizado"?"blue":"purple"}`}>{t.estado}</span></td>
                   <td><div style={{display:"flex",gap:6}}>
@@ -725,7 +717,7 @@ function Turnos({ data, save }) {
         <div className="modal-overlay" onClick={()=>setShowF(false)}>
           <div className="modal" style={{maxWidth:500}} onClick={e=>e.stopPropagation()}>
             <div className="modal-header"><span className="modal-title">{editId?"Editar turno":"Nuevo turno"}</span><button className="btn btn-sm" onClick={()=>setShowF(false)}>✕</button></div>
-            <div className="info-box">Si aún no tiene paciente cargado, podés escribir una descripción libre como "Madre de nena de 7 años".</div>
+            <div className="info-box">Si el paciente aún no está registrado, escribí una descripción libre como "Madre de nena de 9 años".</div>
             <div className="form-grid">
               <div className="form-group form-full"><label>Paciente (si ya está registrado)</label>
                 <select value={form.pacienteId} onChange={e=>setField("pacienteId",e.target.value)}>
@@ -733,9 +725,7 @@ function Turnos({ data, save }) {
                   {data.pacientes.map(p=><option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
                 </select>
               </div>
-              {!form.pacienteId && <div className="form-group form-full"><label>Descripción libre del turno</label>
-                <input value={form.descripcionLibre} onChange={e=>setField("descripcionLibre",e.target.value)} placeholder='Ej: "Madre de nena de 9 años"' />
-              </div>}
+              {!form.pacienteId && <Field l="Descripción libre" k="descripcionLibre" full value={form.descripcionLibre} onChange={setField} />}
               <Field l="Fecha" k="fecha" type="date" value={form.fecha} onChange={setField} />
               <Field l="Hora" k="hora" type="time" value={form.hora} onChange={setField} />
               <div className="form-group form-full"><label>Estado</label>
@@ -756,8 +746,8 @@ function Turnos({ data, save }) {
   );
 }
 
-// ── SESIONES ──
-function Sesiones({ data, save }) {
+function Sesiones({ ctx }) {
+  const { data, saveItem, deleteItem } = ctx;
   const empty = { pacienteId:"", fecha:"", descripcion:"", observaciones:"", objetivos:"" };
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
@@ -765,11 +755,8 @@ function Sesiones({ data, save }) {
   const [filter, setFilter] = useState("");
   const setField = (k,v) => setForm(f=>({...f,[k]:v}));
   const open = (s=null) => { setForm(s?{...s}:empty); setEditId(s?s.id:null); setShowF(true); };
-  const submit = () => {
-    const ss = editId ? data.sesiones.map(s=>s.id===editId?{...form,id:editId}:s) : [...data.sesiones,{...form,id:uid()}];
-    save({...data,sesiones:ss}); setShowF(false);
-  };
-  const del = (id) => save({...data,sesiones:data.sesiones.filter(s=>s.id!==id)});
+  const submit = async () => { await saveItem("sesiones", {...form, id: editId||uid()}); setShowF(false); };
+  const del = async (id) => await deleteItem("sesiones", id);
   const filtered = [...data.sesiones].filter(s=>!filter||s.pacienteId===filter).sort((a,b)=>a.fecha>b.fecha?-1:1);
   return (
     <div>
@@ -829,8 +816,8 @@ function Sesiones({ data, save }) {
   );
 }
 
-// ── TESTS ──
-function Tests({ data, save }) {
+function Tests({ ctx }) {
+  const { data, saveItem, deleteItem } = ctx;
   const empty = { pacienteId:"", tipo:"", fecha:"", resultado:"", conclusiones:"" };
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
@@ -838,11 +825,8 @@ function Tests({ data, save }) {
   const [filter, setFilter] = useState("");
   const setField = (k,v) => setForm(f=>({...f,[k]:v}));
   const open = (t=null) => { setForm(t?{...t}:empty); setEditId(t?t.id:null); setShowF(true); };
-  const submit = () => {
-    const ts = editId ? data.tests.map(t=>t.id===editId?{...form,id:editId}:t) : [...data.tests,{...form,id:uid()}];
-    save({...data,tests:ts}); setShowF(false);
-  };
-  const del = (id) => save({...data,tests:data.tests.filter(t=>t.id!==id)});
+  const submit = async () => { await saveItem("tests", {...form, id: editId||uid()}); setShowF(false); };
+  const del = async (id) => await deleteItem("tests", id);
   const filtered = [...data.tests].filter(t=>!filter||t.pacienteId===filter).sort((a,b)=>a.fecha>b.fecha?-1:1);
   return (
     <div>
@@ -906,15 +890,12 @@ function Tests({ data, save }) {
   );
 }
 
-// ── INFORMES ──
 function InformeHeader({ prof, logoSrc }) {
   return (
     <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",borderBottom:"2.5px solid #6b5b8e",paddingBottom:"1rem",marginBottom:"1.25rem"}}>
       <div style={{width:100,height:100,flexShrink:0}}>
-        {logoSrc
-          ? <img src={logoSrc} alt="Logo" style={{width:100,height:100,objectFit:"contain",borderRadius:8}} />
-          : <div style={{width:100,height:100,background:"#f5f1ec",borderRadius:8,border:"1px dashed #c8b8e8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#b0a898",textAlign:"center",padding:8}}>Sin logo</div>
-        }
+        {logoSrc ? <img src={logoSrc} alt="Logo" style={{width:100,height:100,objectFit:"contain",borderRadius:8}} />
+          : <div style={{width:100,height:100,background:"#f5f1ec",borderRadius:8,border:"1px dashed #c8b8e8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#b0a898",textAlign:"center",padding:8}}>Sin logo</div>}
       </div>
       <div style={{textAlign:"right",lineHeight:1.7}}>
         <div style={{fontWeight:500,fontSize:17,color:"#6b5b8e"}}>{prof.nombre}</div>
@@ -928,7 +909,8 @@ function InformeHeader({ prof, logoSrc }) {
   );
 }
 
-function Informes({ data, save, logoSrc }) {
+function Informes({ ctx }) {
+  const { data, saveItem, deleteItem, logoSrc } = ctx;
   const [showF, setShowF] = useState(false);
   const [pacienteId, setPacienteId] = useState("");
   const [selSesiones, setSelSesiones] = useState([]);
@@ -941,12 +923,11 @@ function Informes({ data, save, logoSrc }) {
   const openNew = () => { setPacienteId(""); setSelSesiones([]); setSelTests([]); setConclusiones(""); setEditId(null); setShowF(true); };
   const openEdit = (inf) => { setPacienteId(inf.pacienteId); setSelSesiones(inf.selSesiones||[]); setSelTests(inf.selTests||[]); setConclusiones(inf.conclusiones||""); setEditId(inf.id); setShowF(true); };
   const toggle = (arr,set,id) => set(arr.includes(id)?arr.filter(x=>x!==id):[...arr,id]);
-  const submit = () => {
+  const submit = async () => {
     const inf = { id:editId||uid(), pacienteId, fecha:new Date().toISOString().slice(0,10), selSesiones, selTests, conclusiones };
-    const arr = editId ? informes.map(i=>i.id===editId?inf:i) : [...informes,inf];
-    save({...data,informes:arr}); setShowF(false);
+    await saveItem("informes", inf); setShowF(false);
   };
-  const del = (id) => save({...data,informes:informes.filter(i=>i.id!==id)});
+  const del = async (id) => await deleteItem("informes", id);
   const genPreview = (inf) => {
     const p = data.pacientes.find(x=>x.id===inf.pacienteId);
     const secs = (inf.selSesiones||[]).map(id=>data.sesiones.find(s=>s.id===id)).filter(Boolean);
@@ -966,37 +947,26 @@ function Informes({ data, save, logoSrc }) {
           <InformeHeader prof={data.profesional} logoSrc={logoSrc} />
           <div style={{marginBottom:18}}>
             <div style={{fontWeight:500,fontSize:17,marginBottom:6,color:"#6b5b8e"}}>Informe Psicopedagógico</div>
-            <div style={{fontSize:15,color:"#7a6e64"}}>
-              Paciente: <b style={{color:"#4a3f35"}}>{p?`${p.apellido}, ${p.nombre}`:"—"}</b>
-              {p?.fechaNac && <> · Edad: <b>{edadAnios(p.fechaNac)} años</b></>}
-              {p?.dni && <> · DNI: {p.dni}</>}
-              {" · "}Fecha: {inf.fecha}
-            </div>
+            <div style={{fontSize:15,color:"#7a6e64"}}>Paciente: <b style={{color:"#4a3f35"}}>{p?`${p.apellido}, ${p.nombre}`:"—"}</b>{p?.fechaNac&&<> · Edad: <b>{edadAnios(p.fechaNac)} años</b></>}{p?.dni&&<> · DNI: {p.dni}</>}{" · "}Fecha: {inf.fecha}</div>
           </div>
-          {secs.length>0 && <>
-            <div className="section-title">Observaciones de sesiones</div>
+          {secs.length>0 && <><div className="section-title">Observaciones de sesiones</div>
             {secs.map(s=>(
               <div key={s.id} style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #6b5b8e"}}>
                 <div style={{fontWeight:500,fontSize:15,marginBottom:6}}>Sesión del {s.fecha}{s.descripcion?` — ${s.descripcion}`:""}</div>
                 {s.observaciones && <div style={{fontSize:15,marginBottom:4}}><b>Observaciones:</b> {s.observaciones}</div>}
                 {s.objetivos && <div style={{fontSize:15}}><b>Objetivos:</b> {s.objetivos}</div>}
               </div>
-            ))}
-          </>}
-          {ts.length>0 && <>
-            <div className="section-title">Resultados de tests</div>
+            ))}</>}
+          {ts.length>0 && <><div className="section-title">Resultados de tests</div>
             {ts.map(t=>(
               <div key={t.id} style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #3a5a9a"}}>
                 <div style={{fontWeight:500,fontSize:15,marginBottom:6}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
                 {t.resultado && <div style={{fontSize:15,marginBottom:4}}><b>Resultado:</b> {t.resultado}</div>}
                 {t.conclusiones && <div style={{fontSize:15}}><b>Conclusiones:</b> {t.conclusiones}</div>}
               </div>
-            ))}
-          </>}
-          {inf.conclusiones && <>
-            <div className="section-title">Conclusiones generales</div>
-            <div style={{fontSize:15,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{inf.conclusiones}</div>
-          </>}
+            ))}</>}
+          {inf.conclusiones && <><div className="section-title">Conclusiones generales</div>
+            <div style={{fontSize:15,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{inf.conclusiones}</div></>}
           <div style={{marginTop:44,paddingTop:16,borderTop:"1px solid #e2ddd8",display:"flex",justifyContent:"flex-end"}}>
             <div style={{textAlign:"center"}}>
               <div style={{borderTop:"1px solid #8a7e74",paddingTop:8,minWidth:220,fontSize:14,color:"#7a6e64"}}>
@@ -1011,7 +981,6 @@ function Informes({ data, save, logoSrc }) {
 
   const sesPac = data.sesiones.filter(s=>s.pacienteId===pacienteId);
   const testsPac = data.tests.filter(t=>t.pacienteId===pacienteId);
-
   return (
     <div>
       <div className="card">
@@ -1050,7 +1019,7 @@ function Informes({ data, save, logoSrc }) {
             </div>
             {pacienteId && <>
               <div className="section-title">Sesiones a incluir</div>
-              {sesPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Sin sesiones registradas para este paciente</p>}
+              {sesPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Sin sesiones para este paciente</p>}
               {sesPac.map(s=>(
                 <label key={s.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",cursor:"pointer",fontSize:15}}>
                   <input type="checkbox" checked={selSesiones.includes(s.id)} onChange={()=>toggle(selSesiones,setSelSesiones,s.id)} style={{width:"auto",accentColor:"#6b5b8e"}} />
@@ -1058,7 +1027,7 @@ function Informes({ data, save, logoSrc }) {
                 </label>
               ))}
               <div className="section-title">Tests a incluir</div>
-              {testsPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Sin tests registrados para este paciente</p>}
+              {testsPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Sin tests para este paciente</p>}
               {testsPac.map(t=>(
                 <label key={t.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",cursor:"pointer",fontSize:15}}>
                   <input type="checkbox" checked={selTests.includes(t.id)} onChange={()=>toggle(selTests,setSelTests,t.id)} style={{width:"auto",accentColor:"#6b5b8e"}} />
@@ -1081,8 +1050,8 @@ function Informes({ data, save, logoSrc }) {
   );
 }
 
-// ── COBROS ──
-function Cobros({ data, save }) {
+function Cobros({ ctx }) {
+  const { data, saveItem, deleteItem } = ctx;
   const empty = { pacienteId:"", fecha:"", monto:"", modalidad:"Particular", obraSocialId:"", estado:"Pendiente", notas:"" };
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
@@ -1090,11 +1059,8 @@ function Cobros({ data, save }) {
   const [filter, setFilter] = useState("");
   const setField = (k,v) => setForm(f=>({...f,[k]:v}));
   const open = (c=null) => { setForm(c?{...empty,...c}:empty); setEditId(c?c.id:null); setShowF(true); };
-  const submit = () => {
-    const cs = editId ? data.cobros.map(c=>c.id===editId?{...form,id:editId}:c) : [...data.cobros,{...form,id:uid()}];
-    save({...data,cobros:cs}); setShowF(false);
-  };
-  const del = (id) => save({...data,cobros:data.cobros.filter(c=>c.id!==id)});
+  const submit = async () => { await saveItem("cobros", {...form, id: editId||uid()}); setShowF(false); };
+  const del = async (id) => await deleteItem("cobros", id);
   const filtered = [...data.cobros].filter(c=>!filter||c.estado===filter).sort((a,b)=>a.fecha>b.fecha?-1:1);
   const total = filtered.reduce((s,c)=>s+(parseFloat(c.monto)||0),0);
   const pendiente = data.cobros.filter(c=>c.estado==="Pendiente").reduce((s,c)=>s+(parseFloat(c.monto)||0),0);
@@ -1153,7 +1119,7 @@ function Cobros({ data, save }) {
                   <option>Particular</option><option>Obra Social / Prepaga</option>
                 </select>
               </div>
-              {form.modalidad!=="Particular" && <div className="form-group"><label>Obra social / Prepaga</label>
+              {form.modalidad!=="Particular" && <div className="form-group"><label>Obra social</label>
                 <select value={form.obraSocialId} onChange={e=>setField("obraSocialId",e.target.value)}>
                   <option value="">Seleccionar...</option>
                   {data.obrasSociales.map(o=><option key={o.id} value={o.id}>{o.nombre} ({o.cobertura}%)</option>)}
@@ -1177,19 +1143,16 @@ function Cobros({ data, save }) {
   );
 }
 
-// ── OBRAS SOCIALES ──
-function ObrasSociales({ data, save }) {
+function ObrasSociales({ ctx }) {
+  const { data, saveItem, deleteItem } = ctx;
   const empty = { nombre:"", cobertura:70, demoraDias:30 };
   const [form, setForm] = useState(empty);
   const [editId, setEditId] = useState(null);
   const [showF, setShowF] = useState(false);
   const setField = (k,v) => setForm(f=>({...f,[k]:v}));
   const open = (o=null) => { setForm(o?{...o}:empty); setEditId(o?o.id:null); setShowF(true); };
-  const submit = () => {
-    const os = editId ? data.obrasSociales.map(o=>o.id===editId?{...form,id:editId}:o) : [...data.obrasSociales,{...form,id:uid()}];
-    save({...data,obrasSociales:os}); setShowF(false);
-  };
-  const del = (id) => save({...data,obrasSociales:data.obrasSociales.filter(o=>o.id!==id)});
+  const submit = async () => { await saveItem("obrasSociales", {...form, id: editId||uid()}); setShowF(false); };
+  const del = async (id) => await deleteItem("obrasSociales", id);
   return (
     <div>
       <div className="card">
@@ -1218,9 +1181,11 @@ function ObrasSociales({ data, save }) {
         <div className="modal-overlay" onClick={()=>setShowF(false)}>
           <div className="modal" style={{maxWidth:420}} onClick={e=>e.stopPropagation()}>
             <div className="modal-header"><span className="modal-title">{editId?"Editar":"Nueva"} obra social</span><button className="btn btn-sm" onClick={()=>setShowF(false)}>✕</button></div>
-            <Field l="Nombre" k="nombre" value={form.nombre} onChange={setField} /><div style={{marginBottom:10}} />
-            <Field l="Cobertura (%)" k="cobertura" type="number" value={form.cobertura} onChange={setField} /><div style={{marginBottom:10}} />
-            <Field l="Demora estimada de pago (días)" k="demoraDias" type="number" value={form.demoraDias} onChange={setField} />
+            <div style={{display:"flex",flexDirection:"column",gap:12}}>
+              <Field l="Nombre" k="nombre" value={form.nombre} onChange={setField} />
+              <Field l="Cobertura (%)" k="cobertura" type="number" value={form.cobertura} onChange={setField} />
+              <Field l="Demora estimada de pago (días)" k="demoraDias" type="number" value={form.demoraDias} onChange={setField} />
+            </div>
             <div className="modal-footer">
               <button className="btn" onClick={()=>setShowF(false)}>Cancelar</button>
               <button className="btn btn-primary" onClick={submit}>Guardar</button>
@@ -1232,8 +1197,8 @@ function ObrasSociales({ data, save }) {
   );
 }
 
-// ── PROFESIONAL ──
-function Profesional({ data, save, logoSrc, setLogoSrc }) {
+function Profesional({ ctx }) {
+  const { data, saveProfesional, logoSrc, setLogoSrc } = ctx;
   const [form, setForm] = useState({...data.profesional});
   const [saved, setSaved] = useState(false);
   const fileRef = useRef();
@@ -1241,23 +1206,24 @@ function Profesional({ data, save, logoSrc, setLogoSrc }) {
   const handleLogo = (e) => {
     const file = e.target.files[0]; if (!file) return;
     const reader = new FileReader();
-    reader.onload = (ev) => { const b64 = ev.target.result; setLogoSrc(b64); setForm(f=>({...f,logo:b64})); };
+    reader.onload = (ev) => { const b64=ev.target.result; setLogoSrc(b64); setForm(f=>({...f,logo:b64})); };
     reader.readAsDataURL(file);
   };
-  const submit = () => { save({...data,profesional:{...form,logo:logoSrc}}); setSaved(true); setTimeout(()=>setSaved(false),2000); };
+  const submit = async () => {
+    await saveProfesional({...form, logo: logoSrc});
+    setSaved(true); setTimeout(()=>setSaved(false),2000);
+  };
   return (
     <div className="card" style={{maxWidth:620}}>
       <div className="card-title" style={{marginBottom:16}}>Datos del profesional</div>
       <div style={{display:"flex",alignItems:"center",gap:18,marginBottom:18,padding:14,background:"#f5f1ec",borderRadius:10,border:"1px solid #e2ddd8"}}>
         <div>
-          {logoSrc
-            ? <img src={logoSrc} alt="Logo" style={{width:90,height:90,objectFit:"contain",borderRadius:8,border:"1px solid #e2ddd8"}} />
-            : <div style={{width:90,height:90,background:"#fff",borderRadius:8,border:"1px dashed #c8b8e8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#b0a898",textAlign:"center",padding:8}}>Sin logo</div>
-          }
+          {logoSrc ? <img src={logoSrc} alt="Logo" style={{width:90,height:90,objectFit:"contain",borderRadius:8,border:"1px solid #e2ddd8"}} />
+            : <div style={{width:90,height:90,background:"#fff",borderRadius:8,border:"1px dashed #c8b8e8",display:"flex",alignItems:"center",justifyContent:"center",fontSize:12,color:"#b0a898",textAlign:"center",padding:8}}>Sin logo</div>}
         </div>
         <div>
           <div style={{fontSize:15,fontWeight:500,marginBottom:6,color:"#4a3f35"}}>Logo del consultorio</div>
-          <div style={{fontSize:13,color:"#8a7e74",marginBottom:10}}>Aparece en el encabezado izquierdo de los informes</div>
+          <div style={{fontSize:13,color:"#8a7e74",marginBottom:10}}>Aparece en el encabezado de los informes</div>
           <div style={{display:"flex",gap:8}}>
             <button className="btn btn-sm btn-primary" onClick={()=>fileRef.current.click()}>Subir imagen</button>
             {logoSrc && <button className="btn btn-sm btn-danger" onClick={()=>{setLogoSrc("");setForm(f=>({...f,logo:""}));}}>Eliminar</button>}
@@ -1275,7 +1241,7 @@ function Profesional({ data, save, logoSrc, setLogoSrc }) {
       </div>
       <div style={{marginTop:14,display:"flex",gap:8,alignItems:"center"}}>
         <button className="btn btn-primary" onClick={submit}>Guardar cambios</button>
-        {saved && <span style={{fontSize:14,color:"#4a7a5a"}}>✓ Guardado</span>}
+        {saved && <span style={{fontSize:14,color:"#4a7a5a"}}>✓ Guardado en la nube</span>}
       </div>
     </div>
   );
