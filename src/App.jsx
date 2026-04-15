@@ -309,7 +309,8 @@ function Dashboard({ ctx, nav }) {
 }
 
 // ── PACIENTES ──
-const emptyPaciente = { nombre:"", apellido:"", dni:"", fechaNac:"", apodo:"", religion:"", escuela:"", alergias:"No", manoDominante:"Derecha", medicoC:"", motivoConsulta:"", padreNombre:"", padreEdad:"", padreOcupacion:"", padreEscolaridad:"", padreAntecedentes:"", madreNombre:"", madreEdad:"", madreOcupacion:"", madreEscolaridad:"", madreAntecedentes:"", hermanos:[], conQuienVive:"", relacionMadre:"", relacionPadre:"", relacionHermanos:"" };
+const ESCOLARIDAD_OPTS = ["Primario Incompleto","Primario Completo","Secundario Incompleto","Secundario Completo","Universitario Incompleto","Universitario Completo"];
+const emptyPaciente = { nombre:"", apellido:"", dni:"", fechaNac:"", apodo:"", religion:"", escuela:"", alergias:"No", manoDominante:"Derecha", medicoC:"", motivoConsulta:"", direccion:"", consentimientoInformado:"No", padreNombre:"", padreEdad:"", padreOcupacion:"", padreEscolaridad:"", padreAntecedentes:"", padreTelefono:"", padreDni:"", madreNombre:"", madreEdad:"", madreOcupacion:"", madreEscolaridad:"", madreAntecedentes:"", madreTelefono:"", madreDni:"", hermanos:[], conQuienVive:"", relacionMadre:"", relacionPadre:"", relacionHermanos:"" };
 const emptyAnam = { fechaEntrevista:"", pesoNacer:"", embarazo:"Normal", termino:"A término", fueplanificado:"", buenaAlimentacion:"", cuidadosNecesarios:"", tabaco:"No", alcohol:"No", medicacion:"", otrosConsumo:"", traumaPsiquico:"", noticiaEmbarazo:"", dificultadEmbarazo:"", estadoAnimo:"", parto:"Normal", sexoDeseado:"", circularCordon:"No", podal:"No", incompatibilidadSanguinea:"No", incubadora:"No", tiempoIncubadora:"", dificultadParto:"", enfermedadesPostnatal:"", cirugias:"", lactanciaMaterna:"", lactanciaMixta:"", chupete:"No", succionDedo:"No", mamadera:"No", alimentacionSemis:"", alimentacionSolida:"", alimentoNoGusta:"", denticion:"", esfinterDiurno:"", esfinterNocturno:"", higieneSolo:"", banoSolo:"", quienBana:"", controlCefalico:"", controlTronco:"", marcha:"", suenhoLugar:"", suenhoHoras:"", suenhoHorario:"", suenhoElemento:"", suenhoDispositivo:"No", vocalizaciones:"", palabras:"", frase:"", gestual:"", manifestaDeseos:"", preferencias:"", consignasSimples:"", repetirConsigna:"", activo:"", tiendaAislarse:"", esAgresivo:"", juegos:"", conQuienJuega:"", dominadoPorOtros:"", esCarinoso:"", esInquieto:"", problemasDisciplina:"", jardinMaternal:"", edadIngreso:"", jardinInfantes:"", pasoPorJardin:"", escuelaPrimaria:"", gradoActual:"", materiasGusta:"", actividadesExtra:"", otrosDatos:"" };
 const ANAM_TABS = [{key:"embarazo",label:"Embarazo"},{key:"parto",label:"Parto y nacimiento"},{key:"alimentacion",label:"Alimentación"},{key:"esfinteres",label:"Esfínteres"},{key:"psicomotricidad",label:"Psicomotricidad"},{key:"suenho",label:"Sueño"},{key:"comunicacion",label:"Comunicación"},{key:"socializacion",label:"Socialización"},{key:"escolar",label:"Trayectoria escolar"},{key:"otros",label:"Otros"}];
 
@@ -515,23 +516,29 @@ function Pacientes({ ctx }) {
               <Field l="¿Es alérgico/a?" k="alergias" opts={["No","Sí"]} value={pacForm.alergias} onChange={setPacField} />
               <Field l="Mano dominante" k="manoDominante" opts={["Derecha","Izquierda","Ambidiestro"]} value={pacForm.manoDominante} onChange={setPacField} />
               <Field l="Médico de cabecera" k="medicoC" value={pacForm.medicoC} onChange={setPacField} />
+              <Field l="Dirección" k="direccion" full value={pacForm.direccion} onChange={setPacField} />
+              <Field l="Consentimiento informado" k="consentimientoInformado" opts={["No","Sí"]} value={pacForm.consentimientoInformado} onChange={setPacField} />
               <Field l="Motivo de consulta" k="motivoConsulta" type="textarea" full value={pacForm.motivoConsulta} onChange={setPacField} />
             </div>}
             {formTab==="familiar" && <div>
               <div className="section-title">Datos del padre</div>
               <div className="form-grid">
                 <Field l="Nombre y apellido" k="padreNombre" value={pacForm.padreNombre} onChange={setPacField} />
+                <Field l="DNI" k="padreDni" value={pacForm.padreDni} onChange={setPacField} />
                 <Field l="Edad" k="padreEdad" value={pacForm.padreEdad} onChange={setPacField} />
+                <Field l="Teléfono" k="padreTelefono" value={pacForm.padreTelefono} onChange={setPacField} />
                 <Field l="Ocupación" k="padreOcupacion" value={pacForm.padreOcupacion} onChange={setPacField} />
-                <Field l="Escolaridad" k="padreEscolaridad" value={pacForm.padreEscolaridad} onChange={setPacField} />
+                <Field l="Escolaridad" k="padreEscolaridad" opts={ESCOLARIDAD_OPTS} value={pacForm.padreEscolaridad} onChange={setPacField} />
                 <Field l="Antecedentes de enfermedades" k="padreAntecedentes" full value={pacForm.padreAntecedentes} onChange={setPacField} />
               </div>
               <div className="section-title">Datos de la madre</div>
               <div className="form-grid">
                 <Field l="Nombre y apellido" k="madreNombre" value={pacForm.madreNombre} onChange={setPacField} />
+                <Field l="DNI" k="madreDni" value={pacForm.madreDni} onChange={setPacField} />
                 <Field l="Edad" k="madreEdad" value={pacForm.madreEdad} onChange={setPacField} />
+                <Field l="Teléfono" k="madreTelefono" value={pacForm.madreTelefono} onChange={setPacField} />
                 <Field l="Ocupación" k="madreOcupacion" value={pacForm.madreOcupacion} onChange={setPacField} />
-                <Field l="Escolaridad" k="madreEscolaridad" value={pacForm.madreEscolaridad} onChange={setPacField} />
+                <Field l="Escolaridad" k="madreEscolaridad" opts={ESCOLARIDAD_OPTS} value={pacForm.madreEscolaridad} onChange={setPacField} />
                 <Field l="Antecedentes de enfermedades" k="madreAntecedentes" full value={pacForm.madreAntecedentes} onChange={setPacField} />
               </div>
               <div className="section-title">Hermanos</div>
