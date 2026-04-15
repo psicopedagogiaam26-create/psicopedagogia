@@ -3,12 +3,12 @@ import { getFirestore } from "firebase/firestore";
 
 // ── Reemplazá estos valores con los de tu proyecto Firebase ──
 const firebaseConfig = {
-  apiKey: "TU_API_KEY",
-  authDomain: "TU_PROJECT.firebaseapp.com",
-  projectId: "TU_PROJECT_ID",
-  storageBucket: "TU_PROJECT.appspot.com",
-  messagingSenderId: "TU_SENDER_ID",
-  appId: "TU_APP_ID"
+  apiKey: "AIzaSyBCLEcsWt3HRwe7AdhYzyLfQjtzo6-w_zo",
+  authDomain: "psicopedagogia-andrea.firebaseapp.com",
+  projectId: "psicopedagogia-andrea",
+  storageBucket: "psicopedagogia-andrea.firebasestorage.app",
+  messagingSenderId: "598141790744",
+  appId: "1:598141790744:web:63aadeb307f84c3b41316d"
 };
 
 const app = initializeApp(firebaseConfig);
