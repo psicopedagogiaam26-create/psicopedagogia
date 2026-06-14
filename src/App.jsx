@@ -18,7 +18,7 @@ const initData = {
 };
 
 const PARENTESCOS = ["Padre","Madre","Padrastro","Madrastra","Tutor legal","Abuelo","Abuela","Tío","Tía","Primo","Prima","Hermano mayor","Hermana mayor"];
-const TIPOS_TEST = ["WISC-V","Bender","HTP","Familia Kinética","Test de la Figura Humana","Prueba de Lectura","Evaluación Fonológica","Otro"];
+const TIPOS_TEST = ["Bender","CARAS - R","Cumanin","Cumanes","ENI2","Evaluación Fonológica","Familia Kinética","HTP","PRO CÁLCULO","PRO ESC","PRO LEC","Prueba de Lectura","RAVEN Escala Coloreada","RAVEN Escala General","STROOP","Técnicas Proyectivas - Jorge Visca","Test Atención D2","Test de la Figura Humana","Test del REY","Test HTP","Test LEE","Test Persona Bajo la Lluvia","WISC-V","Otro"];
 
 function uid() { return Date.now() + Math.random().toString(36).slice(2); }
 function edadAnios(fnac) {
@@ -396,7 +396,7 @@ function AnamnesisForm({ form, setField }) {
         <Field l="¿Es agresivo/a?" k="esAgresivo" opts={["Sí","No","A veces"]} value={form.esAgresivo} onChange={setField} />
         <Field l="¿Con qué juegos se divierte?" k="juegos" value={form.juegos} onChange={setField} />
         <Field l="¿Con quién juega?" k="conQuienJuega" value={form.conQuienJuega} onChange={setField} />
-        <Field l="¿Es dominado por otros niños?" k="dominadoPorOtros" opts={["Sí","No","A veces","No Sabe"]} value={form.dominadoPorOtros} onChange={setField} />
+        <Field l="¿Es dominado por otros niños?" k="dominadoPorOtros" opts={["Sí","No","A veces"]} value={form.dominadoPorOtros} onChange={setField} />
         <Field l="¿Es cariñoso/a?" k="esCarinoso" opts={["Sí","No"]} value={form.esCarinoso} onChange={setField} />
         <Field l="¿Es inquieto/a?" k="esInquieto" opts={["Sí","No","A veces"]} value={form.esInquieto} onChange={setField} />
         <Field l="¿Problemas de disciplina?" k="problemasDisciplina" opts={["Sí","No","A veces"]} value={form.problemasDisciplina} onChange={setField} />
