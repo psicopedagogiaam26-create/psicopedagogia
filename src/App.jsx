@@ -188,7 +188,21 @@ tr:hover td { background: #f5f1ec; }
 @media print {
   body * { visibility: hidden; }
   #informe-print, #informe-print * { visibility: visible; }
-  #informe-print { position: fixed; inset: 0; padding: 1.5cm 2cm; background: white; font-family: Arial, sans-serif; font-size: 11pt; color: #000; }
+  #informe-print { position: absolute; top: 0; left: 0; width: 100%; }
+  .page-break { page-break-before: always; break-before: page; display: block; height: 0; }
+  .informe-seccion { page-break-inside: avoid; break-inside: avoid; }
+  .informe-test-block { page-break-inside: avoid; break-inside: avoid; }
+  .informe-firma { page-break-inside: avoid; break-inside: avoid; }
+  @page { size: A4; margin: 1.8cm 2cm; }
+}
+.hoja-a4 { background: #fff; max-width: 21cm; margin: 0 auto; padding: 1.5cm 1.8cm; box-shadow: 0 4px 24px rgba(0,0,0,0.12); border-radius: 4px; }
+.informe-datos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; line-height: 1.6; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid #e2ddd8; color: #3a322b; }
+.informe-full { grid-column: 1 / -1; }
+.informe-firma { margin-top: 50px; padding-top: 16px; border-top: 1px solid #e2ddd8; display: flex; justify-content: flex-end; }
+.informe-firma-linea { text-align: center; border-top: 1px solid #8a7e74; padding-top: 8px; min-width: 220px; font-size: 13px; color: #7a6e64; }
+@media (max-width: 768px) {
+  .hoja-a4 { padding: 1rem; box-shadow: none; }
+  .informe-datos-grid { grid-template-columns: 1fr; }
 }
 `;
 
@@ -916,91 +930,229 @@ function InformeHeader({ prof, logoSrc }) {
   );
 }
 
+// ── Tipos de informe disponibles ──
+const TIPOS_INFORME = [
+  { key: "psicopedagogico", label: "Informe Psicopedagógico" },
+];
+
+const emptyInformePsico = {
+  tipo: "psicopedagogico",
+  pacienteId: "",
+  fechaEntrega: "",
+  numHojas: "",
+  motivoConsulta: "",
+  historiaClinica: "",
+  antecedentesEscolares: "",
+  pruebasAdministradas: "",
+  observacionConducta: "",
+  areaPedagogica: "",
+  selTests: [],
+  sintesisDiagnostica: "",
+  fortalezas: "",
+  sugerencias: "",
+  conclusion: "",
+};
+
+// Salto de página controlado para impresión A4
+function PageBreak() { return <div className="page-break" />; }
+
+function SeccionInforme({ titulo, children }) {
+  if (!children || (typeof children === "string" && !children.trim())) return null;
+  return (
+    <div className="informe-seccion" style={{marginBottom:18}}>
+      <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>{titulo}</div>
+      <div style={{fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",color:"#3a322b"}}>{children}</div>
+    </div>
+  );
+}
+
+function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
+  const ts = (inf.selTests||[]).map(id=>data.tests.find(t=>t.id===id)).filter(Boolean);
+  const prof = data.profesional;
+  return (
+    <div className="hoja-a4" id="informe-print">
+      <InformeHeader prof={prof} logoSrc={logoSrc} />
+      <div style={{textAlign:"center",marginBottom:20}}>
+        <div style={{fontWeight:600,fontSize:18,color:"#4a3f35"}}>Informe Psicopedagógico</div>
+      </div>
+
+      <div className="informe-datos-grid">
+        <div><b>Nombre y Apellido:</b> {p?`${p.apellido}, ${p.nombre}`:"—"}</div>
+        <div><b>DNI N°:</b> {p?.dni||"—"}</div>
+        <div><b>Edad:</b> {p?.fechaNac?`${edadAnios(p.fechaNac)} años`:"—"}</div>
+        <div><b>Fecha de Nacimiento:</b> {p?.fechaNac||"—"}</div>
+        <div><b>Dirección particular:</b> {p?.direccion||"—"}</div>
+        <div><b>Colegio al que asiste:</b> {p?.escuela||"—"}</div>
+        <div className="informe-full"><b>Motivo de consulta:</b> {inf.motivoConsulta || p?.motivoConsulta || "—"}</div>
+        <div><b>Fecha de entrega de Informe:</b> {inf.fechaEntrega || new Date().toISOString().slice(0,10)}</div>
+        <div><b>Nº de hojas del Informe:</b> {inf.numHojas || "—"}</div>
+        <div className="informe-full"><b>Evaluador:</b> {prof.nombre} — {prof.especialidad} {prof.matricula}</div>
+      </div>
+
+      <SeccionInforme titulo="Historia Clínica">{inf.historiaClinica}</SeccionInforme>
+      <SeccionInforme titulo="Antecedentes Escolares">{inf.antecedentesEscolares}</SeccionInforme>
+      <SeccionInforme titulo="Pruebas Administradas">{inf.pruebasAdministradas}</SeccionInforme>
+
+      <PageBreak />
+
+      <SeccionInforme titulo="Observación de la Conducta">{inf.observacionConducta}</SeccionInforme>
+      <SeccionInforme titulo="Área Pedagógica">{inf.areaPedagogica}</SeccionInforme>
+
+      {ts.length>0 && (
+        <div className="informe-seccion" style={{marginBottom:18}}>
+          <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>Resultados de los Tests Administrados</div>
+          {ts.map(t=>(
+            <div key={t.id} className="informe-test-block" style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #3a5a9a"}}>
+              <div style={{fontWeight:600,fontSize:14,marginBottom:6}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
+              {t.resultado && <div style={{fontSize:14,marginBottom:4,lineHeight:1.6}}><b>Resultado:</b> {t.resultado}</div>}
+              {t.conclusiones && <div style={{fontSize:14,lineHeight:1.6}}><b>Conclusiones:</b> {t.conclusiones}</div>}
+            </div>
+          ))}
+        </div>
+      )}
+
+      <PageBreak />
+
+      <SeccionInforme titulo="Síntesis Diagnóstica">{inf.sintesisDiagnostica}</SeccionInforme>
+      <SeccionInforme titulo="Fortalezas">{inf.fortalezas}</SeccionInforme>
+      <SeccionInforme titulo="Sugerencias">{inf.sugerencias}</SeccionInforme>
+      <SeccionInforme titulo="Conclusión">{inf.conclusion}</SeccionInforme>
+
+      <div className="informe-firma">
+        <div className="informe-firma-linea">
+          {prof.nombre}<br/>{prof.especialidad}<br/>{prof.matricula}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function InformePsicopedagogicoForm({ form, setField, data, pacienteId }) {
+  const [tab, setTab] = useState("datos");
+  const testsPac = data.tests.filter(t=>t.pacienteId===pacienteId);
+  const toggleTest = (id) => setField("selTests", (form.selTests||[]).includes(id) ? form.selTests.filter(x=>x!==id) : [...(form.selTests||[]), id]);
+
+  const INF_TABS = [
+    {key:"datos",label:"Datos generales"},
+    {key:"clinica",label:"Historia clínica"},
+    {key:"escolar",label:"Antec. escolares"},
+    {key:"pruebas",label:"Pruebas y conducta"},
+    {key:"pedagogica",label:"Área pedagógica"},
+    {key:"tests",label:"Tests"},
+    {key:"sintesis",label:"Síntesis y conclusión"},
+  ];
+
+  return (
+    <div>
+      <div className="tabs" style={{flexWrap:"wrap"}}>
+        {INF_TABS.map(t=><div key={t.key} className={`tab${tab===t.key?" active":""}`} onClick={()=>setTab(t.key)}>{t.label}</div>)}
+      </div>
+      {tab==="datos" && <div className="form-grid">
+        <Field l="Motivo de consulta (para este informe)" k="motivoConsulta" type="textarea" full value={form.motivoConsulta} onChange={setField} />
+        <Field l="Fecha de entrega del informe" k="fechaEntrega" type="date" value={form.fechaEntrega} onChange={setField} />
+        <Field l="N° de hojas del informe" k="numHojas" value={form.numHojas} onChange={setField} />
+      </div>}
+      {tab==="clinica" && <div className="form-grid">
+        <Field l="Historia clínica" k="historiaClinica" type="textarea" full value={form.historiaClinica} onChange={setField} />
+      </div>}
+      {tab==="escolar" && <div className="form-grid">
+        <Field l="Antecedentes escolares" k="antecedentesEscolares" type="textarea" full value={form.antecedentesEscolares} onChange={setField} />
+      </div>}
+      {tab==="pruebas" && <div className="form-grid">
+        <Field l="Pruebas administradas (listado)" k="pruebasAdministradas" type="textarea" full value={form.pruebasAdministradas} onChange={setField} />
+        <Field l="Observación de la conducta" k="observacionConducta" type="textarea" full value={form.observacionConducta} onChange={setField} />
+      </div>}
+      {tab==="pedagogica" && <div className="form-grid">
+        <Field l="Área pedagógica" k="areaPedagogica" type="textarea" full value={form.areaPedagogica} onChange={setField} />
+      </div>}
+      {tab==="tests" && <div>
+        <div className="section-title">Seleccionar tests a incluir en el informe</div>
+        {testsPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Este paciente no tiene tests registrados todavía. Cargalos desde la sección Tests.</p>}
+        {testsPac.map(t=>(
+          <label key={t.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",cursor:"pointer",fontSize:15}}>
+            <input type="checkbox" checked={(form.selTests||[]).includes(t.id)} onChange={()=>toggleTest(t.id)} style={{width:"auto",accentColor:"#6b5b8e"}} />
+            {t.fecha} — {t.tipo}
+          </label>
+        ))}
+      </div>}
+      {tab==="sintesis" && <div className="form-grid">
+        <Field l="Síntesis diagnóstica" k="sintesisDiagnostica" type="textarea" full value={form.sintesisDiagnostica} onChange={setField} />
+        <Field l="Fortalezas" k="fortalezas" type="textarea" full value={form.fortalezas} onChange={setField} />
+        <Field l="Sugerencias" k="sugerencias" type="textarea" full value={form.sugerencias} onChange={setField} />
+        <Field l="Conclusión" k="conclusion" type="textarea" full value={form.conclusion} onChange={setField} />
+      </div>}
+    </div>
+  );
+}
+
 function Informes({ ctx }) {
   const { data, saveItem, deleteItem, logoSrc } = ctx;
+  const [showTipoSelect, setShowTipoSelect] = useState(false);
   const [showF, setShowF] = useState(false);
+  const [tipoActual, setTipoActual] = useState("psicopedagogico");
   const [pacienteId, setPacienteId] = useState("");
-  const [selSesiones, setSelSesiones] = useState([]);
-  const [selTests, setSelTests] = useState([]);
-  const [conclusiones, setConclusiones] = useState("");
+  const [form, setForm] = useState({...emptyInformePsico});
   const [preview, setPreview] = useState(null);
   const [editId, setEditId] = useState(null);
   const informes = data.informes || [];
+  const setField = (k,v) => setForm(f=>({...f,[k]:v}));
 
-  const openNew = () => { setPacienteId(""); setSelSesiones([]); setSelTests([]); setConclusiones(""); setEditId(null); setShowF(true); };
-  const openEdit = (inf) => { setPacienteId(inf.pacienteId); setSelSesiones(inf.selSesiones||[]); setSelTests(inf.selTests||[]); setConclusiones(inf.conclusiones||""); setEditId(inf.id); setShowF(true); };
-  const toggle = (arr,set,id) => set(arr.includes(id)?arr.filter(x=>x!==id):[...arr,id]);
+  const openTipoSelect = () => setShowTipoSelect(true);
+  const chooseTipo = (tipoKey) => {
+    setTipoActual(tipoKey);
+    setShowTipoSelect(false);
+    setPacienteId("");
+    setForm({...emptyInformePsico, tipo: tipoKey});
+    setEditId(null);
+    setShowF(true);
+  };
+  const openEdit = (inf) => {
+    setTipoActual(inf.tipo || "psicopedagogico");
+    setPacienteId(inf.pacienteId);
+    setForm({...emptyInformePsico, ...inf});
+    setEditId(inf.id);
+    setShowF(true);
+  };
   const submit = async () => {
-    const inf = { id:editId||uid(), pacienteId, fecha:new Date().toISOString().slice(0,10), selSesiones, selTests, conclusiones };
-    await saveItem("informes", inf); setShowF(false);
+    const inf = { ...form, id: editId||uid(), pacienteId, fechaCreacion: new Date().toISOString().slice(0,10) };
+    await saveItem("informes", inf);
+    setShowF(false);
   };
   const del = async (id) => await deleteItem("informes", id);
   const genPreview = (inf) => {
     const p = data.pacientes.find(x=>x.id===inf.pacienteId);
-    const secs = (inf.selSesiones||[]).map(id=>data.sesiones.find(s=>s.id===id)).filter(Boolean);
-    const ts = (inf.selTests||[]).map(id=>data.tests.find(t=>t.id===id)).filter(Boolean);
-    setPreview({inf,p,secs,ts});
+    setPreview({inf, p});
   };
 
   if (preview) {
-    const {inf,p,secs,ts} = preview;
+    const { inf, p } = preview;
     return (
       <div>
         <div style={{display:"flex",gap:8,marginBottom:14}}>
           <button className="btn" onClick={()=>setPreview(null)}>← Volver</button>
           <button className="btn btn-primary" onClick={()=>window.print()}>Imprimir / PDF</button>
         </div>
-        <div className="card" id="informe-print">
-          <InformeHeader prof={data.profesional} logoSrc={logoSrc} />
-          <div style={{marginBottom:18}}>
-            <div style={{fontWeight:500,fontSize:17,marginBottom:6,color:"#6b5b8e"}}>Informe Psicopedagógico</div>
-            <div style={{fontSize:15,color:"#7a6e64"}}>Paciente: <b style={{color:"#4a3f35"}}>{p?`${p.apellido}, ${p.nombre}`:"—"}</b>{p?.fechaNac&&<> · Edad: <b>{edadAnios(p.fechaNac)} años</b></>}{p?.dni&&<> · DNI: {p.dni}</>}{" · "}Fecha: {inf.fecha}</div>
-          </div>
-          {secs.length>0 && <><div className="section-title">Observaciones de sesiones</div>
-            {secs.map(s=>(
-              <div key={s.id} style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #6b5b8e"}}>
-                <div style={{fontWeight:500,fontSize:15,marginBottom:6}}>Sesión del {s.fecha}{s.descripcion?` — ${s.descripcion}`:""}</div>
-                {s.observaciones && <div style={{fontSize:15,marginBottom:4}}><b>Observaciones:</b> {s.observaciones}</div>}
-                {s.objetivos && <div style={{fontSize:15}}><b>Objetivos:</b> {s.objetivos}</div>}
-              </div>
-            ))}</>}
-          {ts.length>0 && <><div className="section-title">Resultados de tests</div>
-            {ts.map(t=>(
-              <div key={t.id} style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #3a5a9a"}}>
-                <div style={{fontWeight:500,fontSize:15,marginBottom:6}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
-                {t.resultado && <div style={{fontSize:15,marginBottom:4}}><b>Resultado:</b> {t.resultado}</div>}
-                {t.conclusiones && <div style={{fontSize:15}}><b>Conclusiones:</b> {t.conclusiones}</div>}
-              </div>
-            ))}</>}
-          {inf.conclusiones && <><div className="section-title">Conclusiones generales</div>
-            <div style={{fontSize:15,lineHeight:1.8,whiteSpace:"pre-wrap"}}>{inf.conclusiones}</div></>}
-          <div style={{marginTop:44,paddingTop:16,borderTop:"1px solid #e2ddd8",display:"flex",justifyContent:"flex-end"}}>
-            <div style={{textAlign:"center"}}>
-              <div style={{borderTop:"1px solid #8a7e74",paddingTop:8,minWidth:220,fontSize:14,color:"#7a6e64"}}>
-                {data.profesional.nombre}<br/>{data.profesional.especialidad}<br/>{data.profesional.matricula}
-              </div>
-            </div>
-          </div>
-        </div>
+        {(inf.tipo||"psicopedagogico")==="psicopedagogico" &&
+          <InformePsicopedagogicoPreview data={data} inf={inf} p={p} logoSrc={logoSrc} />}
       </div>
     );
   }
 
-  const sesPac = data.sesiones.filter(s=>s.pacienteId===pacienteId);
-  const testsPac = data.tests.filter(t=>t.pacienteId===pacienteId);
   return (
     <div>
       <div className="card">
-        <div className="card-header"><span className="card-title">Informes psicopedagógicos</span><button className="btn btn-primary" onClick={openNew}>+ Nuevo informe</button></div>
+        <div className="card-header"><span className="card-title">Informes</span><button className="btn btn-primary" onClick={openTipoSelect}>+ Nuevo informe</button></div>
         <div className="table-wrap">
           <table>
-            <thead><tr><th>Paciente</th><th>Fecha</th><th>Sesiones</th><th>Tests</th><th>Acciones</th></tr></thead>
+            <thead><tr><th>Paciente</th><th>Tipo</th><th>Fecha</th><th>Acciones</th></tr></thead>
             <tbody>
               {informes.map(inf=>{
                 const p = data.pacientes.find(x=>x.id===inf.pacienteId);
+                const tipoLabel = TIPOS_INFORME.find(t=>t.key===(inf.tipo||"psicopedagogico"))?.label || "Informe";
                 return <tr key={inf.id}>
-                  <td>{p?`${p.nombre} ${p.apellido}`:"—"}</td><td>{inf.fecha}</td>
-                  <td>{(inf.selSesiones||[]).length}</td><td>{(inf.selTests||[]).length}</td>
+                  <td>{p?`${p.nombre} ${p.apellido}`:"—"}</td>
+                  <td><span className="badge badge-purple">{tipoLabel}</span></td>
+                  <td>{inf.fechaCreacion||inf.fecha||"—"}</td>
                   <td><div style={{display:"flex",gap:6}}>
                     <button className="btn btn-sm" onClick={()=>genPreview(inf)}>Ver</button>
                     <button className="btn btn-sm" onClick={()=>openEdit(inf)}>Editar</button>
@@ -1008,47 +1160,47 @@ function Informes({ ctx }) {
                   </div></td>
                 </tr>;
               })}
-              {informes.length===0 && <tr><td colSpan={5} style={{textAlign:"center",color:"#8a7e74"}}>Sin informes</td></tr>}
+              {informes.length===0 && <tr><td colSpan={4} style={{textAlign:"center",color:"#8a7e74"}}>Sin informes</td></tr>}
             </tbody>
           </table>
         </div>
       </div>
+
+      {showTipoSelect && (
+        <div className="modal-overlay" onClick={()=>setShowTipoSelect(false)}>
+          <div className="modal" style={{maxWidth:480}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header"><span className="modal-title">Elegir tipo de informe</span><button className="btn btn-sm" onClick={()=>setShowTipoSelect(false)}>✕</button></div>
+            <div style={{display:"flex",flexDirection:"column",gap:10}}>
+              {TIPOS_INFORME.map(t=>(
+                <button key={t.key} className="btn" style={{justifyContent:"flex-start",padding:"14px 16px",fontSize:15}} onClick={()=>chooseTipo(t.key)}>
+                  {t.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {showF && (
         <div className="modal-overlay" onClick={()=>setShowF(false)}>
-          <div className="modal" style={{maxWidth:700}} onClick={e=>e.stopPropagation()}>
-            <div className="modal-header"><span className="modal-title">Redactar informe</span><button className="btn btn-sm" onClick={()=>setShowF(false)}>✕</button></div>
+          <div className="modal" style={{maxWidth:760}} onClick={e=>e.stopPropagation()}>
+            <div className="modal-header">
+              <span className="modal-title">{TIPOS_INFORME.find(t=>t.key===tipoActual)?.label}</span>
+              <button className="btn btn-sm" onClick={()=>setShowF(false)}>✕</button>
+            </div>
             <div className="form-group" style={{marginBottom:14}}>
               <label>Paciente</label>
-              <select value={pacienteId} onChange={e=>{setPacienteId(e.target.value);setSelSesiones([]);setSelTests([]);}}>
+              <select value={pacienteId} onChange={e=>setPacienteId(e.target.value)}>
                 <option value="">Seleccionar...</option>
                 {data.pacientes.map(p=><option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
               </select>
             </div>
-            {pacienteId && <>
-              <div className="section-title">Sesiones a incluir</div>
-              {sesPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Sin sesiones para este paciente</p>}
-              {sesPac.map(s=>(
-                <label key={s.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",cursor:"pointer",fontSize:15}}>
-                  <input type="checkbox" checked={selSesiones.includes(s.id)} onChange={()=>toggle(selSesiones,setSelSesiones,s.id)} style={{width:"auto",accentColor:"#6b5b8e"}} />
-                  {s.fecha} — {s.descripcion}
-                </label>
-              ))}
-              <div className="section-title">Tests a incluir</div>
-              {testsPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Sin tests para este paciente</p>}
-              {testsPac.map(t=>(
-                <label key={t.id} style={{display:"flex",alignItems:"center",gap:9,padding:"7px 0",cursor:"pointer",fontSize:15}}>
-                  <input type="checkbox" checked={selTests.includes(t.id)} onChange={()=>toggle(selTests,setSelTests,t.id)} style={{width:"auto",accentColor:"#6b5b8e"}} />
-                  {t.fecha} — {t.tipo}
-                </label>
-              ))}
-              <div className="form-group" style={{marginTop:14}}>
-                <label>Conclusiones generales</label>
-                <textarea value={conclusiones} onChange={e=>setConclusiones(e.target.value)} style={{minHeight:130}} />
-              </div>
-            </>}
+            {pacienteId && tipoActual==="psicopedagogico" && (
+              <InformePsicopedagogicoForm form={form} setField={setField} data={data} pacienteId={pacienteId} />
+            )}
             <div className="modal-footer">
               <button className="btn" onClick={()=>setShowF(false)}>Cancelar</button>
-              <button className="btn btn-primary" onClick={submit}>Guardar informe</button>
+              <button className="btn btn-primary" onClick={submit} disabled={!pacienteId}>Guardar informe</button>
             </div>
           </div>
         </div>
