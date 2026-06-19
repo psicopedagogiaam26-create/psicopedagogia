@@ -193,13 +193,15 @@ tr:hover td { background: #f5f1ec; }
   .informe-seccion { page-break-inside: avoid; break-inside: avoid; }
   .informe-test-block { page-break-inside: avoid; break-inside: avoid; }
   .informe-firma { page-break-inside: avoid; break-inside: avoid; }
-  @page { size: A4; margin: 1.8cm 2cm; }
+  .hoja-a4 { box-shadow: none !important; }
+  @page { size: A4; margin: 1.5cm 2cm 2cm 2cm; }
 }
 .hoja-a4 { background: #fff; max-width: 21cm; margin: 0 auto; padding: 1.5cm 1.8cm; box-shadow: 0 4px 24px rgba(0,0,0,0.12); border-radius: 4px; }
 .informe-datos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; line-height: 1.6; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid #e2ddd8; color: #3a322b; }
 .informe-full { grid-column: 1 / -1; }
 .informe-firma { margin-top: 50px; padding-top: 16px; border-top: 1px solid #e2ddd8; display: flex; justify-content: flex-end; }
 .informe-firma-linea { text-align: center; border-top: 1px solid #8a7e74; padding-top: 8px; min-width: 220px; font-size: 13px; color: #7a6e64; }
+.print-instructions { background: #fdf3e0; border: 1px solid #e8c98a; border-radius: 10px; padding: 14px 18px; font-size: 13px; color: #6a5420; margin-bottom: 14px; line-height: 1.6; }
 @media (max-width: 768px) {
   .hoja-a4 { padding: 1rem; box-shadow: none; }
   .informe-datos-grid { grid-template-columns: 1fr; }
@@ -1058,9 +1060,17 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
 
       <SeccionInforme titulo="Historia Clínica" incluido={incl.historiaClinica}>{inf.historiaClinica}</SeccionInforme>
       <SeccionInforme titulo="Antecedentes Escolares" incluido={incl.antecedentesEscolares}>{inf.antecedentesEscolares}</SeccionInforme>
-      <SeccionInforme titulo="Pruebas Administradas" incluido={incl.pruebasAdministradas}>{inf.pruebasAdministradas}</SeccionInforme>
 
-      <PageBreak />
+      {incl.pruebasAdministradas && (
+        <div className="informe-seccion" style={{marginBottom:18}}>
+          <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>Pruebas Administradas</div>
+          {ts.length===0
+            ? <div style={{fontSize:13,fontStyle:"italic",color:"#b0a898",border:"1px dashed #d8d0c8",borderRadius:8,padding:"10px 12px"}}>Sin pruebas seleccionadas para este informe</div>
+            : <ol style={{fontSize:14,lineHeight:1.8,color:"#3a322b",paddingLeft:22,margin:0}}>
+                {ts.map(t => <li key={t.id}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</li>)}
+              </ol>}
+        </div>
+      )}
 
       <SeccionInforme titulo="Observación de la Conducta" incluido={incl.observacionConducta}>{inf.observacionConducta}</SeccionInforme>
       <SeccionInforme titulo="Área Pedagógica" incluido={incl.areaPedagogica}>{inf.areaPedagogica}</SeccionInforme>
@@ -1079,8 +1089,6 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
             ))}
         </div>
       )}
-
-      <PageBreak />
 
       <SeccionInforme titulo="Síntesis Diagnóstica" incluido={incl.sintesisDiagnostica}>{inf.sintesisDiagnostica}</SeccionInforme>
       <SeccionInforme titulo="Fortalezas" incluido={incl.fortalezas}>{inf.fortalezas}</SeccionInforme>
