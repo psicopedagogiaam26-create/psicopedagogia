@@ -189,19 +189,27 @@ tr:hover td { background: #f5f1ec; }
   body * { visibility: hidden; }
   #informe-print, #informe-print * { visibility: visible; }
   #informe-print { position: absolute; top: 0; left: 0; width: 100%; }
-  .page-break { page-break-before: always; break-before: page; display: block; height: 0; }
   .informe-seccion { page-break-inside: avoid; break-inside: avoid; }
-  .informe-test-block { page-break-inside: avoid; break-inside: avoid; }
+  .informe-test-resultado { page-break-inside: avoid; break-inside: avoid; }
+  .informe-test-conclusion { page-break-inside: avoid; break-inside: avoid; }
   .informe-firma { page-break-inside: avoid; break-inside: avoid; }
-  .hoja-a4 { box-shadow: none !important; }
-  @page { size: A4; margin: 1.5cm 2cm 2cm 2cm; }
+  @page {
+    size: A4;
+    margin: 1.8cm 2cm 2.4cm 2cm;
+    @bottom-center {
+      content: "Pág. " counter(page) " de " counter(pages);
+      font-size: 9pt;
+      color: #8a7e74;
+    }
+  }
 }
 .hoja-a4 { background: #fff; max-width: 21cm; margin: 0 auto; padding: 1.5cm 1.8cm; box-shadow: 0 4px 24px rgba(0,0,0,0.12); border-radius: 4px; }
 .informe-datos-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 24px; font-size: 14px; line-height: 1.6; margin-bottom: 22px; padding-bottom: 16px; border-bottom: 1px solid #e2ddd8; color: #3a322b; }
 .informe-full { grid-column: 1 / -1; }
 .informe-firma { margin-top: 50px; padding-top: 16px; border-top: 1px solid #e2ddd8; display: flex; justify-content: flex-end; }
 .informe-firma-linea { text-align: center; border-top: 1px solid #8a7e74; padding-top: 8px; min-width: 220px; font-size: 13px; color: #7a6e64; }
-.print-instructions { background: #fdf3e0; border: 1px solid #e8c98a; border-radius: 10px; padding: 14px 18px; font-size: 13px; color: #6a5420; margin-bottom: 14px; line-height: 1.6; }
+.informe-pruebas-lista { font-size: 14px; line-height: 1.9; padding-left: 22px; margin: 0; }
+.informe-pruebas-lista li { margin-bottom: 4px; }
 @media (max-width: 768px) {
   .hoja-a4 { padding: 1rem; box-shadow: none; }
   .informe-datos-grid { grid-template-columns: 1fr; }
@@ -1018,8 +1026,8 @@ function autoAreaPedagogica(sesiones) {
   return conObjetivos.map(s => `Sesión del ${s.fecha}: ${s.objetivos}`).join("\n\n");
 }
 
-// Salto de página controlado para impresión A4
-function PageBreak() { return <div className="page-break" />; }
+// Salto de página: ya no se usa de forma forzada, el contenido fluye naturalmente
+// y cada bloque individual decide si se corta o no mediante page-break-inside: avoid
 
 function SeccionInforme({ titulo, children, incluido=true }) {
   if (!incluido) return null;
@@ -1036,8 +1044,10 @@ function SeccionInforme({ titulo, children, incluido=true }) {
 
 function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
   const incl = inf.incluir || emptyInformePsico.incluir;
-  const ts = (inf.selTests||[]).map(id=>data.tests.find(t=>t.id===id)).filter(Boolean);
+  const ts = (inf.selTests||[]).map(id=>data.tests.find(t=>t.id===id)).filter(Boolean)
+    .sort((a,b) => (a.fecha||"") > (b.fecha||"") ? 1 : -1);
   const prof = data.profesional;
+  const totalPaginas = 1; // referencia visual; el navegador define la paginación real al imprimir
   return (
     <div className="hoja-a4" id="informe-print">
       <InformeHeader prof={prof} logoSrc={logoSrc} />
@@ -1064,11 +1074,14 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
       {incl.pruebasAdministradas && (
         <div className="informe-seccion" style={{marginBottom:18}}>
           <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>Pruebas Administradas</div>
-          {ts.length===0
-            ? <div style={{fontSize:13,fontStyle:"italic",color:"#b0a898",border:"1px dashed #d8d0c8",borderRadius:8,padding:"10px 12px"}}>Sin pruebas seleccionadas para este informe</div>
-            : <ol style={{fontSize:14,lineHeight:1.8,color:"#3a322b",paddingLeft:22,margin:0}}>
-                {ts.map(t => <li key={t.id}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</li>)}
-              </ol>}
+          {ts.length===0 && !inf.pruebasAdministradas?.trim()
+            ? <div style={{fontSize:13,fontStyle:"italic",color:"#b0a898",border:"1px dashed #d8d0c8",borderRadius:8,padding:"10px 12px"}}>Sin información cargada para esta sección</div>
+            : ts.length>0
+              ? <ol className="informe-pruebas-lista">
+                  {ts.map(t=><li key={t.id}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</li>)}
+                </ol>
+              : <div style={{fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",color:"#3a322b"}}>{inf.pruebasAdministradas}</div>
+          }
         </div>
       )}
 
@@ -1076,15 +1089,15 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
       <SeccionInforme titulo="Área Pedagógica" incluido={incl.areaPedagogica}>{inf.areaPedagogica}</SeccionInforme>
 
       {incl.tests && (
-        <div className="informe-seccion" style={{marginBottom:18}}>
+        <div style={{marginBottom:18}}>
           <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>Resultados de los Tests Administrados</div>
           {ts.length===0
             ? <div style={{fontSize:13,fontStyle:"italic",color:"#b0a898",border:"1px dashed #d8d0c8",borderRadius:8,padding:"10px 12px"}}>Sin tests seleccionados para este informe</div>
             : ts.map(t=>(
-              <div key={t.id} className="informe-test-block" style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #3a5a9a"}}>
-                <div style={{fontWeight:600,fontSize:14,marginBottom:6}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
-                {t.resultado && <div style={{fontSize:14,marginBottom:4,lineHeight:1.6}}><b>Resultado:</b> {t.resultado}</div>}
-                {t.conclusiones && <div style={{fontSize:14,lineHeight:1.6}}><b>Conclusiones:</b> {t.conclusiones}</div>}
+              <div key={t.id} style={{marginBottom:16}}>
+                <div style={{fontWeight:600,fontSize:14,marginBottom:6,color:"#3a322b"}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
+                {t.resultado && <div className="informe-test-resultado" style={{fontSize:14,marginBottom:6,lineHeight:1.6,padding:"10px 14px",background:"#f5f1ec",borderRadius:8,borderLeft:"3px solid #3a5a9a"}}><b>Resultado:</b> {t.resultado}</div>}
+                {t.conclusiones && <div className="informe-test-conclusion" style={{fontSize:14,lineHeight:1.6,padding:"10px 14px",background:"#f5f1ec",borderRadius:8,borderLeft:"3px solid #6b5b8e"}}><b>Conclusiones:</b> {t.conclusiones}</div>}
               </div>
             ))}
         </div>
@@ -1258,11 +1271,106 @@ function Informes({ ctx }) {
 
   if (preview) {
     const { inf, p } = preview;
+
+    const descargarWord = () => {
+      const incl = inf.incluir || emptyInformePsico.incluir;
+      const ts = (inf.selTests||[]).map(id=>data.tests.find(t=>t.id===id)).filter(Boolean)
+        .sort((a,b) => (a.fecha||"") > (b.fecha||"") ? 1 : -1);
+      const prof = data.profesional;
+      const nl2br = (s) => (s||"").replace(/\n/g, "<br/>");
+      const seccion = (titulo, contenido, incluida=true) => {
+        if (!incluida) return "";
+        const vacio = !contenido || !contenido.trim();
+        return `<h2 style="color:#6b5b8e;font-size:13pt;border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:22px;">${titulo}</h2>
+          <p style="font-size:11pt;line-height:1.6;${vacio?"font-style:italic;color:#999;":""}">${vacio?"Sin información cargada para esta sección":nl2br(contenido)}</p>`;
+      };
+      let pruebasHtml = "";
+      if (incl.pruebasAdministradas) {
+        if (ts.length>0) {
+          pruebasHtml = `<h2 style="color:#6b5b8e;font-size:13pt;border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:22px;">Pruebas Administradas</h2>
+            <ol style="font-size:11pt;line-height:1.8;">${ts.map(t=>`<li>${t.tipo}${t.fecha?` — ${t.fecha}`:""}</li>`).join("")}</ol>`;
+        } else {
+          pruebasHtml = seccion("Pruebas Administradas", inf.pruebasAdministradas);
+        }
+      }
+      let testsHtml = "";
+      if (incl.tests) {
+        if (ts.length===0) {
+          testsHtml = `<h2 style="color:#6b5b8e;font-size:13pt;border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:22px;">Resultados de los Tests Administrados</h2>
+            <p style="font-size:11pt;font-style:italic;color:#999;">Sin tests seleccionados para este informe</p>`;
+        } else {
+          testsHtml = `<h2 style="color:#6b5b8e;font-size:13pt;border-bottom:1px solid #ccc;padding-bottom:4px;margin-top:22px;">Resultados de los Tests Administrados</h2>` +
+            ts.map(t=>`
+              <h3 style="font-size:12pt;margin-top:14px;margin-bottom:4px;">${t.tipo}${t.fecha?` — ${t.fecha}`:""}</h3>
+              ${t.resultado?`<p style="font-size:11pt;line-height:1.6;background:#f5f1ec;padding:8px 12px;border-left:3px solid #3a5a9a;"><b>Resultado:</b> ${nl2br(t.resultado)}</p>`:""}
+              ${t.conclusiones?`<p style="font-size:11pt;line-height:1.6;background:#f5f1ec;padding:8px 12px;border-left:3px solid #6b5b8e;"><b>Conclusiones:</b> ${nl2br(t.conclusiones)}</p>`:""}
+            `).join("");
+        }
+      }
+      const datosGeneralesHtml = incl.datosGenerales ? `
+        <table style="width:100%;font-size:11pt;line-height:1.6;margin-bottom:16px;border-bottom:1px solid #ccc;padding-bottom:12px;">
+          <tr><td style="width:50%;padding:2px 0;"><b>Nombre y Apellido:</b> ${p?`${p.apellido}, ${p.nombre}`:"—"}</td><td style="padding:2px 0;"><b>DNI N°:</b> ${p?.dni||"—"}</td></tr>
+          <tr><td style="padding:2px 0;"><b>Edad:</b> ${p?.fechaNac?`${edadAnios(p.fechaNac)} años`:"—"}</td><td style="padding:2px 0;"><b>Fecha de Nacimiento:</b> ${p?.fechaNac||"—"}</td></tr>
+          <tr><td style="padding:2px 0;"><b>Dirección particular:</b> ${p?.direccion||"—"}</td><td style="padding:2px 0;"><b>Colegio al que asiste:</b> ${p?.escuela||"—"}</td></tr>
+          <tr><td colspan="2" style="padding:2px 0;"><b>Motivo de consulta:</b> ${inf.motivoConsulta || p?.motivoConsulta || "—"}</td></tr>
+          <tr><td style="padding:2px 0;"><b>Fecha de entrega de Informe:</b> ${inf.fechaEntrega || new Date().toISOString().slice(0,10)}</td><td style="padding:2px 0;"><b>Nº de hojas del Informe:</b> ${inf.numHojas || "—"}</td></tr>
+          <tr><td colspan="2" style="padding:2px 0;"><b>Evaluador:</b> ${prof.nombre} — ${prof.especialidad} ${prof.matricula}</td></tr>
+        </table>` : "";
+
+      const html = `
+        <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:w="urn:schemas-microsoft-com:office:word" xmlns="http://www.w3.org/TR/REC-html40">
+        <head><meta charset="utf-8"><title>Informe Psicopedagógico</title></head>
+        <body style="font-family:Calibri,Arial,sans-serif;color:#222;">
+          <table style="width:100%;border-bottom:2px solid #6b5b8e;padding-bottom:12px;margin-bottom:16px;">
+            <tr>
+              <td style="width:110px;vertical-align:middle;">${logoSrc?`<img src="${logoSrc}" width="90" height="90" />`:""}</td>
+              <td style="text-align:right;vertical-align:middle;font-size:11pt;line-height:1.6;">
+                <div style="font-size:14pt;color:#6b5b8e;font-weight:bold;">${prof.nombre}</div>
+                <div>${prof.especialidad}</div>
+                <div>${prof.matricula}</div>
+                ${prof.telefono?`<div>${prof.telefono}</div>`:""}
+                ${prof.email?`<div>${prof.email}</div>`:""}
+                <div>${prof.direccion}</div>
+              </td>
+            </tr>
+          </table>
+          <h1 style="text-align:center;font-size:16pt;color:#333;">Informe Psicopedagógico</h1>
+          ${datosGeneralesHtml}
+          ${seccion("Historia Clínica", inf.historiaClinica, incl.historiaClinica)}
+          ${seccion("Antecedentes Escolares", inf.antecedentesEscolares, incl.antecedentesEscolares)}
+          ${pruebasHtml}
+          ${seccion("Observación de la Conducta", inf.observacionConducta, incl.observacionConducta)}
+          ${seccion("Área Pedagógica", inf.areaPedagogica, incl.areaPedagogica)}
+          ${testsHtml}
+          ${seccion("Síntesis Diagnóstica", inf.sintesisDiagnostica, incl.sintesisDiagnostica)}
+          ${seccion("Fortalezas", inf.fortalezas, incl.fortalezas)}
+          ${seccion("Sugerencias", inf.sugerencias, incl.sugerencias)}
+          ${seccion("Conclusión", inf.conclusion, incl.conclusion)}
+          <table style="width:100%;margin-top:40px;"><tr><td style="text-align:right;">
+            <div style="display:inline-block;text-align:center;border-top:1px solid #888;padding-top:6px;font-size:10pt;color:#555;min-width:220px;">
+              ${prof.nombre}<br/>${prof.especialidad}<br/>${prof.matricula}
+            </div>
+          </td></tr></table>
+        </body>
+        </html>`;
+
+      const blob = new Blob(["\ufeff", html], { type: "application/msword" });
+      const nombreArchivo = `Informe_${p?p.apellido+"_"+p.nombre:"paciente"}_${inf.fechaEntrega||new Date().toISOString().slice(0,10)}.doc`.replace(/\s+/g,"_");
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(blob);
+      link.download = nombreArchivo;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    };
+
     return (
       <div>
-        <div style={{display:"flex",gap:8,marginBottom:14}}>
+        <div style={{display:"flex",gap:8,marginBottom:14,flexWrap:"wrap"}}>
           <button className="btn" onClick={()=>setPreview(null)}>← Volver</button>
           <button className="btn btn-primary" onClick={()=>window.print()}>Imprimir / PDF</button>
+          {(inf.tipo||"psicopedagogico")==="psicopedagogico" &&
+            <button className="btn btn-success" onClick={descargarWord}>Descargar en Word (.doc)</button>}
         </div>
         {(inf.tipo||"psicopedagogico")==="psicopedagogico" &&
           <InformePsicopedagogicoPreview data={data} inf={inf} p={p} logoSrc={logoSrc} />}
