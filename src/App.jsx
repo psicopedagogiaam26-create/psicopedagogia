@@ -947,26 +947,93 @@ const emptyInformePsico = {
   observacionConducta: "",
   areaPedagogica: "",
   selTests: [],
+  selSesiones: [],
   sintesisDiagnostica: "",
   fortalezas: "",
   sugerencias: "",
   conclusion: "",
+  incluir: {
+    datosGenerales: true,
+    historiaClinica: true,
+    antecedentesEscolares: true,
+    pruebasAdministradas: true,
+    observacionConducta: true,
+    areaPedagogica: true,
+    tests: true,
+    sintesisDiagnostica: true,
+    fortalezas: true,
+    sugerencias: true,
+    conclusion: true,
+  },
 };
+
+// Construye automáticamente la "Historia clínica" en base a lo ya cargado del paciente
+function autoHistoriaClinica(p, anam, sesiones) {
+  if (!p) return "";
+  const partes = [];
+  const edad = edadAnios(p.fechaNac);
+  let intro = `${p.nombre} es un/a paciente de ${edad||"—"} años`;
+  if (p.conQuienVive) intro += `, que vive con ${p.conQuienVive}`;
+  partes.push(intro + ".");
+  if (p.relacionMadre) partes.push(`Relación con la madre: ${p.relacionMadre}`);
+  if (p.relacionPadre) partes.push(`Relación con el padre: ${p.relacionPadre}`);
+  if (p.relacionHermanos) partes.push(`Relación con los hermanos: ${p.relacionHermanos}`);
+  if (p.motivoConsulta) partes.push(`Motivo de consulta: ${p.motivoConsulta}`);
+  if (anam?.estadoAnimo) partes.push(`Antecedentes de embarazo — estado de ánimo: ${anam.estadoAnimo}`);
+  if (anam?.otrosDatos) partes.push(`Otros datos relevantes: ${anam.otrosDatos}`);
+  return partes.join("\n\n");
+}
+
+// Construye automáticamente "Antecedentes escolares" en base a la anamnesis del paciente
+function autoAntecedentesEscolares(p, anam) {
+  if (!anam && !p) return "";
+  const partes = [];
+  if (p?.escuela) partes.push(`Escuela a la que asiste: ${p.escuela}`);
+  if (anam?.jardinMaternal) partes.push(`Jardín maternal: ${anam.jardinMaternal}${anam.edadIngreso?` (ingresó a los ${anam.edadIngreso})`:""}`);
+  if (anam?.jardinInfantes) partes.push(`Jardín de infantes: ${anam.jardinInfantes}`);
+  if (anam?.pasoPorJardin) partes.push(`Su paso por el jardín: ${anam.pasoPorJardin}`);
+  if (anam?.escuelaPrimaria) partes.push(`Escuela primaria: ${anam.escuelaPrimaria}${anam.gradoActual?` — Grado actual: ${anam.gradoActual}`:""}`);
+  if (anam?.materiasGusta) partes.push(`Materias que le gustan: ${anam.materiasGusta}`);
+  if (anam?.actividadesExtra) partes.push(`Actividades extraescolares: ${anam.actividadesExtra}`);
+  if (anam?.dominadoPorOtros) partes.push(`¿Es dominado por otros niños?: ${anam.dominadoPorOtros}`);
+  if (anam?.esCarinoso) partes.push(`¿Es cariñoso/a?: ${anam.esCarinoso}`);
+  if (anam?.esInquieto) partes.push(`¿Es inquieto/a?: ${anam.esInquieto}`);
+  if (anam?.problemasDisciplina) partes.push(`¿Problemas de disciplina?: ${anam.problemasDisciplina}`);
+  return partes.join("\n");
+}
+
+// Construye automáticamente "Observación de la conducta" en base a las sesiones cargadas
+function autoObservacionConducta(sesiones) {
+  if (!sesiones || sesiones.length===0) return "";
+  return sesiones.map(s => `Sesión del ${s.fecha}${s.descripcion?` — ${s.descripcion}`:""}: ${s.observaciones||"sin observaciones registradas"}`).join("\n\n");
+}
+
+// Construye automáticamente "Área pedagógica" / objetivos en base a las sesiones cargadas
+function autoAreaPedagogica(sesiones) {
+  if (!sesiones || sesiones.length===0) return "";
+  const conObjetivos = sesiones.filter(s=>s.objetivos);
+  if (conObjetivos.length===0) return "";
+  return conObjetivos.map(s => `Sesión del ${s.fecha}: ${s.objetivos}`).join("\n\n");
+}
 
 // Salto de página controlado para impresión A4
 function PageBreak() { return <div className="page-break" />; }
 
-function SeccionInforme({ titulo, children }) {
-  if (!children || (typeof children === "string" && !children.trim())) return null;
+function SeccionInforme({ titulo, children, incluido=true }) {
+  if (!incluido) return null;
+  const vacio = !children || (typeof children === "string" && !children.trim());
   return (
     <div className="informe-seccion" style={{marginBottom:18}}>
       <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>{titulo}</div>
-      <div style={{fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",color:"#3a322b"}}>{children}</div>
+      {vacio
+        ? <div style={{fontSize:13,fontStyle:"italic",color:"#b0a898",border:"1px dashed #d8d0c8",borderRadius:8,padding:"10px 12px"}}>Sin información cargada para esta sección</div>
+        : <div style={{fontSize:14,lineHeight:1.7,whiteSpace:"pre-wrap",color:"#3a322b"}}>{children}</div>}
     </div>
   );
 }
 
 function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
+  const incl = inf.incluir || emptyInformePsico.incluir;
   const ts = (inf.selTests||[]).map(id=>data.tests.find(t=>t.id===id)).filter(Boolean);
   const prof = data.profesional;
   return (
@@ -976,7 +1043,7 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
         <div style={{fontWeight:600,fontSize:18,color:"#4a3f35"}}>Informe Psicopedagógico</div>
       </div>
 
-      <div className="informe-datos-grid">
+      {incl.datosGenerales && <div className="informe-datos-grid">
         <div><b>Nombre y Apellido:</b> {p?`${p.apellido}, ${p.nombre}`:"—"}</div>
         <div><b>DNI N°:</b> {p?.dni||"—"}</div>
         <div><b>Edad:</b> {p?.fechaNac?`${edadAnios(p.fechaNac)} años`:"—"}</div>
@@ -987,36 +1054,38 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
         <div><b>Fecha de entrega de Informe:</b> {inf.fechaEntrega || new Date().toISOString().slice(0,10)}</div>
         <div><b>Nº de hojas del Informe:</b> {inf.numHojas || "—"}</div>
         <div className="informe-full"><b>Evaluador:</b> {prof.nombre} — {prof.especialidad} {prof.matricula}</div>
-      </div>
+      </div>}
 
-      <SeccionInforme titulo="Historia Clínica">{inf.historiaClinica}</SeccionInforme>
-      <SeccionInforme titulo="Antecedentes Escolares">{inf.antecedentesEscolares}</SeccionInforme>
-      <SeccionInforme titulo="Pruebas Administradas">{inf.pruebasAdministradas}</SeccionInforme>
+      <SeccionInforme titulo="Historia Clínica" incluido={incl.historiaClinica}>{inf.historiaClinica}</SeccionInforme>
+      <SeccionInforme titulo="Antecedentes Escolares" incluido={incl.antecedentesEscolares}>{inf.antecedentesEscolares}</SeccionInforme>
+      <SeccionInforme titulo="Pruebas Administradas" incluido={incl.pruebasAdministradas}>{inf.pruebasAdministradas}</SeccionInforme>
 
       <PageBreak />
 
-      <SeccionInforme titulo="Observación de la Conducta">{inf.observacionConducta}</SeccionInforme>
-      <SeccionInforme titulo="Área Pedagógica">{inf.areaPedagogica}</SeccionInforme>
+      <SeccionInforme titulo="Observación de la Conducta" incluido={incl.observacionConducta}>{inf.observacionConducta}</SeccionInforme>
+      <SeccionInforme titulo="Área Pedagógica" incluido={incl.areaPedagogica}>{inf.areaPedagogica}</SeccionInforme>
 
-      {ts.length>0 && (
+      {incl.tests && (
         <div className="informe-seccion" style={{marginBottom:18}}>
           <div className="section-title" style={{color:"#6b5b8e",fontSize:13}}>Resultados de los Tests Administrados</div>
-          {ts.map(t=>(
-            <div key={t.id} className="informe-test-block" style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #3a5a9a"}}>
-              <div style={{fontWeight:600,fontSize:14,marginBottom:6}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
-              {t.resultado && <div style={{fontSize:14,marginBottom:4,lineHeight:1.6}}><b>Resultado:</b> {t.resultado}</div>}
-              {t.conclusiones && <div style={{fontSize:14,lineHeight:1.6}}><b>Conclusiones:</b> {t.conclusiones}</div>}
-            </div>
-          ))}
+          {ts.length===0
+            ? <div style={{fontSize:13,fontStyle:"italic",color:"#b0a898",border:"1px dashed #d8d0c8",borderRadius:8,padding:"10px 12px"}}>Sin tests seleccionados para este informe</div>
+            : ts.map(t=>(
+              <div key={t.id} className="informe-test-block" style={{marginBottom:14,padding:"12px 16px",background:"#f5f1ec",borderRadius:10,borderLeft:"3px solid #3a5a9a"}}>
+                <div style={{fontWeight:600,fontSize:14,marginBottom:6}}>{t.tipo}{t.fecha?` — ${t.fecha}`:""}</div>
+                {t.resultado && <div style={{fontSize:14,marginBottom:4,lineHeight:1.6}}><b>Resultado:</b> {t.resultado}</div>}
+                {t.conclusiones && <div style={{fontSize:14,lineHeight:1.6}}><b>Conclusiones:</b> {t.conclusiones}</div>}
+              </div>
+            ))}
         </div>
       )}
 
       <PageBreak />
 
-      <SeccionInforme titulo="Síntesis Diagnóstica">{inf.sintesisDiagnostica}</SeccionInforme>
-      <SeccionInforme titulo="Fortalezas">{inf.fortalezas}</SeccionInforme>
-      <SeccionInforme titulo="Sugerencias">{inf.sugerencias}</SeccionInforme>
-      <SeccionInforme titulo="Conclusión">{inf.conclusion}</SeccionInforme>
+      <SeccionInforme titulo="Síntesis Diagnóstica" incluido={incl.sintesisDiagnostica}>{inf.sintesisDiagnostica}</SeccionInforme>
+      <SeccionInforme titulo="Fortalezas" incluido={incl.fortalezas}>{inf.fortalezas}</SeccionInforme>
+      <SeccionInforme titulo="Sugerencias" incluido={incl.sugerencias}>{inf.sugerencias}</SeccionInforme>
+      <SeccionInforme titulo="Conclusión" incluido={incl.conclusion}>{inf.conclusion}</SeccionInforme>
 
       <div className="informe-firma">
         <div className="informe-firma-linea">
@@ -1027,10 +1096,21 @@ function InformePsicopedagogicoPreview({ data, inf, p, logoSrc }) {
   );
 }
 
+function CheckIncluir({ label, checked, onChange }) {
+  return (
+    <label style={{display:"flex",alignItems:"center",gap:8,cursor:"pointer",fontSize:13,color:"#7a6e64",fontWeight:500}}>
+      <input type="checkbox" checked={checked} onChange={e=>onChange(e.target.checked)} style={{width:"auto",accentColor:"#6b5b8e"}} />
+      Incluir esta sección en el informe
+    </label>
+  );
+}
+
 function InformePsicopedagogicoForm({ form, setField, data, pacienteId }) {
   const [tab, setTab] = useState("datos");
   const testsPac = data.tests.filter(t=>t.pacienteId===pacienteId);
   const toggleTest = (id) => setField("selTests", (form.selTests||[]).includes(id) ? form.selTests.filter(x=>x!==id) : [...(form.selTests||[]), id]);
+  const incl = form.incluir || emptyInformePsico.incluir;
+  const setIncl = (key, val) => setField("incluir", {...incl, [key]: val});
 
   const INF_TABS = [
     {key:"datos",label:"Datos generales"},
@@ -1047,25 +1127,50 @@ function InformePsicopedagogicoForm({ form, setField, data, pacienteId }) {
       <div className="tabs" style={{flexWrap:"wrap"}}>
         {INF_TABS.map(t=><div key={t.key} className={`tab${tab===t.key?" active":""}`} onClick={()=>setTab(t.key)}>{t.label}</div>)}
       </div>
-      {tab==="datos" && <div className="form-grid">
-        <Field l="Motivo de consulta (para este informe)" k="motivoConsulta" type="textarea" full value={form.motivoConsulta} onChange={setField} />
-        <Field l="Fecha de entrega del informe" k="fechaEntrega" type="date" value={form.fechaEntrega} onChange={setField} />
-        <Field l="N° de hojas del informe" k="numHojas" value={form.numHojas} onChange={setField} />
+      {tab==="datos" && <div>
+        <CheckIncluir checked={incl.datosGenerales} onChange={v=>setIncl("datosGenerales",v)} />
+        <div className="form-grid" style={{marginTop:12}}>
+          <Field l="Motivo de consulta (para este informe)" k="motivoConsulta" type="textarea" full value={form.motivoConsulta} onChange={setField} />
+          <Field l="Fecha de entrega del informe" k="fechaEntrega" type="date" value={form.fechaEntrega} onChange={setField} />
+          <Field l="N° de hojas del informe" k="numHojas" value={form.numHojas} onChange={setField} />
+        </div>
       </div>}
-      {tab==="clinica" && <div className="form-grid">
-        <Field l="Historia clínica" k="historiaClinica" type="textarea" full value={form.historiaClinica} onChange={setField} />
+      {tab==="clinica" && <div>
+        <CheckIncluir checked={incl.historiaClinica} onChange={v=>setIncl("historiaClinica",v)} />
+        <div className="info-box" style={{marginTop:10}}>Se autocompletó con los datos de convivencia y motivo de consulta ya cargados del paciente. Podés editarlo libremente.</div>
+        <div className="form-grid">
+          <Field l="Historia clínica" k="historiaClinica" type="textarea" full value={form.historiaClinica} onChange={setField} />
+        </div>
       </div>}
-      {tab==="escolar" && <div className="form-grid">
-        <Field l="Antecedentes escolares" k="antecedentesEscolares" type="textarea" full value={form.antecedentesEscolares} onChange={setField} />
+      {tab==="escolar" && <div>
+        <CheckIncluir checked={incl.antecedentesEscolares} onChange={v=>setIncl("antecedentesEscolares",v)} />
+        <div className="info-box" style={{marginTop:10}}>Se autocompletó con los datos de la anamnesis (trayectoria escolar y socialización) ya cargados del paciente.</div>
+        <div className="form-grid">
+          <Field l="Antecedentes escolares" k="antecedentesEscolares" type="textarea" full value={form.antecedentesEscolares} onChange={setField} />
+        </div>
       </div>}
-      {tab==="pruebas" && <div className="form-grid">
-        <Field l="Pruebas administradas (listado)" k="pruebasAdministradas" type="textarea" full value={form.pruebasAdministradas} onChange={setField} />
-        <Field l="Observación de la conducta" k="observacionConducta" type="textarea" full value={form.observacionConducta} onChange={setField} />
+      {tab==="pruebas" && <div>
+        <CheckIncluir checked={incl.pruebasAdministradas} onChange={v=>setIncl("pruebasAdministradas",v)} />
+        <div className="form-grid" style={{marginTop:12}}>
+          <Field l="Pruebas administradas (listado)" k="pruebasAdministradas" type="textarea" full value={form.pruebasAdministradas} onChange={setField} />
+        </div>
+        <div style={{marginTop:16}}>
+          <CheckIncluir checked={incl.observacionConducta} onChange={v=>setIncl("observacionConducta",v)} />
+          <div className="info-box" style={{marginTop:10}}>Se autocompletó con las observaciones de las sesiones cargadas para este paciente.</div>
+          <div className="form-grid">
+            <Field l="Observación de la conducta" k="observacionConducta" type="textarea" full value={form.observacionConducta} onChange={setField} />
+          </div>
+        </div>
       </div>}
-      {tab==="pedagogica" && <div className="form-grid">
-        <Field l="Área pedagógica" k="areaPedagogica" type="textarea" full value={form.areaPedagogica} onChange={setField} />
+      {tab==="pedagogica" && <div>
+        <CheckIncluir checked={incl.areaPedagogica} onChange={v=>setIncl("areaPedagogica",v)} />
+        <div className="info-box" style={{marginTop:10}}>Se autocompletó con los objetivos registrados en las sesiones de este paciente.</div>
+        <div className="form-grid">
+          <Field l="Área pedagógica" k="areaPedagogica" type="textarea" full value={form.areaPedagogica} onChange={setField} />
+        </div>
       </div>}
       {tab==="tests" && <div>
+        <CheckIncluir checked={incl.tests} onChange={v=>setIncl("tests",v)} />
         <div className="section-title">Seleccionar tests a incluir en el informe</div>
         {testsPac.length===0 && <p style={{fontSize:13,color:"#8a7e74",marginBottom:8}}>Este paciente no tiene tests registrados todavía. Cargalos desde la sección Tests.</p>}
         {testsPac.map(t=>(
@@ -1076,9 +1181,13 @@ function InformePsicopedagogicoForm({ form, setField, data, pacienteId }) {
         ))}
       </div>}
       {tab==="sintesis" && <div className="form-grid">
+        <div className="form-full"><CheckIncluir checked={incl.sintesisDiagnostica} onChange={v=>setIncl("sintesisDiagnostica",v)} /></div>
         <Field l="Síntesis diagnóstica" k="sintesisDiagnostica" type="textarea" full value={form.sintesisDiagnostica} onChange={setField} />
+        <div className="form-full"><CheckIncluir checked={incl.fortalezas} onChange={v=>setIncl("fortalezas",v)} /></div>
         <Field l="Fortalezas" k="fortalezas" type="textarea" full value={form.fortalezas} onChange={setField} />
+        <div className="form-full"><CheckIncluir checked={incl.sugerencias} onChange={v=>setIncl("sugerencias",v)} /></div>
         <Field l="Sugerencias" k="sugerencias" type="textarea" full value={form.sugerencias} onChange={setField} />
+        <div className="form-full"><CheckIncluir checked={incl.conclusion} onChange={v=>setIncl("conclusion",v)} /></div>
         <Field l="Conclusión" k="conclusion" type="textarea" full value={form.conclusion} onChange={setField} />
       </div>}
     </div>
@@ -1102,16 +1211,31 @@ function Informes({ ctx }) {
     setTipoActual(tipoKey);
     setShowTipoSelect(false);
     setPacienteId("");
-    setForm({...emptyInformePsico, tipo: tipoKey});
+    setForm({...emptyInformePsico, tipo: tipoKey, incluir: {...emptyInformePsico.incluir}});
     setEditId(null);
     setShowF(true);
   };
   const openEdit = (inf) => {
     setTipoActual(inf.tipo || "psicopedagogico");
     setPacienteId(inf.pacienteId);
-    setForm({...emptyInformePsico, ...inf});
+    setForm({...emptyInformePsico, ...inf, incluir: {...emptyInformePsico.incluir, ...(inf.incluir||{})}});
     setEditId(inf.id);
     setShowF(true);
+  };
+  const choosePaciente = (id) => {
+    setPacienteId(id);
+    if (!id || editId) return; // no autocompletar si ya se está editando un informe existente
+    const p = data.pacientes.find(x=>x.id===id);
+    const anam = data.anamnesis.find(a=>a.pacienteId===id);
+    const sesionesPac = data.sesiones.filter(s=>s.pacienteId===id);
+    setForm(f => ({
+      ...f,
+      motivoConsulta: p?.motivoConsulta || "",
+      historiaClinica: autoHistoriaClinica(p, anam, sesionesPac),
+      antecedentesEscolares: autoAntecedentesEscolares(p, anam),
+      observacionConducta: autoObservacionConducta(sesionesPac),
+      areaPedagogica: autoAreaPedagogica(sesionesPac),
+    }));
   };
   const submit = async () => {
     const inf = { ...form, id: editId||uid(), pacienteId, fechaCreacion: new Date().toISOString().slice(0,10) };
@@ -1190,7 +1314,7 @@ function Informes({ ctx }) {
             </div>
             <div className="form-group" style={{marginBottom:14}}>
               <label>Paciente</label>
-              <select value={pacienteId} onChange={e=>setPacienteId(e.target.value)}>
+              <select value={pacienteId} onChange={e=>choosePaciente(e.target.value)}>
                 <option value="">Seleccionar...</option>
                 {data.pacientes.map(p=><option key={p.id} value={p.id}>{p.nombre} {p.apellido}</option>)}
               </select>
